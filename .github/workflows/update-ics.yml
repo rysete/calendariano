@@ -38,11 +38,16 @@ jobs:
           git config user.name "github-actions"
           git config user.email "actions@github.com"
 
-          git add docs/*.ics
-
-          if git diff --cached --quiet; then
-            echo "No changes"
+          # Verifica se existem arquivos .ics antes de tentar adicionar
+          if ls docs/*.ics 1> /dev/null 2>&1; then
+            git add docs/*.ics
+            
+            if git diff --cached --quiet; then
+              echo "No changes in ICS files"
+            else
+              git commit -m "update calendario.ics [skip ci]"
+              git push
+            fi
           else
-            git commit -m "update calendario.ics [skip ci]"
-            git push
+            echo "No ICS files generated to commit"
           fi
