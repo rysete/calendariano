@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  escala-web-editor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: escala-web-app
+    ports:
+      - "8001:8001"
+    volumes:
+      # Mapear o código para permitir atualizações em tempo real (Live Update)
+      - ./backend:/app/backend
+      - ./backend/uploads:/app/backend/uploads
+      - ./backend/calendars:/app/backend/calendars
+      - ../escala-google-calendar:/home/ryse/gemini/escala-google-calendar:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+    restart: unless-stopped
+    # Rodar via uvicorn com reload dentro do container
+    command: /usr/local/bin/python -m uvicorn backend.main:app --host 0.0.0.0 --port 8001 --reload
+
+  # SERVIÇO DE TÚNEL (Ligar/Desligar conforme necessário)
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: escala-web-tunnel
+    command: tunnel --url http://escala-web-editor:8001
+    depends_on:
+      - escala-web-editor
+    restart: unless-stopped

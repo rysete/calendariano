@@ -1,0 +1,36 @@
+# Root .gitignore for escala-web-editor
+
+# Node/Frontend
+node_modules/
+dist/
+dist-ssr/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+.local
+
+# Python/Backend
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# Environments
+.env
+.env.local
+.env.*.local
+
+# Editor/System
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.swo
