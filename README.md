@@ -10,19 +10,16 @@ Uma solução web completa e interativa para gerenciar, editar e sincronizar esc
 - **Exportação Flexível:**
   - Baixe o arquivo **CSV** para importação manual.
   - Baixe o arquivo **ICS (iCalendar)** para testes locais.
-  - **Link de Agenda (WebCal):** Gere uma URL permanente para assinar no Google Agenda com atualização automática.
-- **Túnel Integrado:** Suporte a Cloudflare Tunnel embutido para permitir que o Google Agenda acesse seu servidor local com segurança.
+  - **Automação via GitHub Pages:** Publique sua escala e deixe o Google Agenda atualizar sozinho sem servidor ligado 24h.
 
 ## 🛠️ Stack Tecnológica
 
 - **Backend:** Python (FastAPI) + logic de processamento `openpyxl`.
 - **Frontend:** React + TypeScript + Vite + Lucide Icons.
 - **Infra:** Docker & Docker Compose.
-- **Sincronização:** iCalendar (ICS) com suporte a ETag e Cache-Control.
+- **Automação:** GitHub Actions + GitHub Pages para hospedagem estática de arquivos `.ics`.
 
 ## 📦 Como Rodar (via Docker)
-
-A forma recomendada de rodar é usando Docker, pois ele já configura o banco de dados temporário e o túnel de internet.
 
 1. **Subir a Stack:**
    ```bash
@@ -33,34 +30,36 @@ A forma recomendada de rodar é usando Docker, pois ele já configura o banco de
 2. **Acessar Localmente:**
    Abra [http://localhost:8001](http://localhost:8001) no seu navegador.
 
-3. **Obter Link Público (para Google Agenda):**
-   Para que o Google consiga ler sua agenda, você precisa usar a URL do túnel:
-   ```bash
-   docker logs escala-web-tunnel
-   ```
-   Copie a URL que termina em `.trycloudflare.com`. Acesse o sistema por essa URL para gerar links compatíveis com o Google.
+## 🤖 Automação de Calendário (GitHub Pages)
 
-## 🔄 Comandos Úteis
+Para que o Google Agenda atualize sua escala sem você precisar de um servidor ligado, usamos o GitHub Actions.
 
-- **Ligar/Desligar o Túnel:**
-  ```bash
-  docker stop escala-web-tunnel  # Desliga
-  docker start escala-web-tunnel # Liga
-  ```
-- **Ver Logs do App:**
-  ```bash
-  docker logs -f escala-web-app
-  ```
-- **Desenvolvimento (Live Reload):**
-  A pasta `backend` está mapeada no container. Qualquer alteração no código Python é aplicada instantaneamente sem reiniciar o Docker.
+### Como funciona:
+1. Você gera a escala no Web Editor (salva como JSON em `backend/calendars/`).
+2. Você faz o `git push` desse arquivo JSON para o seu repositório no GitHub.
+3. O GitHub Actions detecta a mudança, gera o arquivo `.ics` e o publica no GitHub Pages.
+4. O Google Agenda lê o arquivo `.ics` diretamente do seu GitHub Pages.
+
+### Fluxo de Trabalho (Workflow):
+Sempre que salvar uma escala nova:
+```bash
+git add 'backend/calendars/*.json'
+git commit -m "update: nova escala de trabalho"
+git push
+```
+
+### URLs da sua Agenda:
+- **Principal:** `https://rysete.github.io/calendariano/calendario.ics`
+- **Por Usuário:** `https://rysete.github.io/calendariano/NOME_DO_ARQUIVO.ics`
+
+*Nota: O Google Agenda pode levar de 8h a 24h para atualizar automaticamente. Para forçar a atualização imediata ao adicionar, use `.../calendario.ics?v=1`.*
 
 ## 📂 Estrutura de Pastas
 
-- `backend/`: API FastAPI e lógica de ponte com o processador de escala.
-- `backend/calendars/`: (Persistente) Onde ficam salvas as escalas editadas.
-- `backend/uploads/`: (Persistente) Cache das planilhas enviadas.
-- `frontend/`: Código fonte do React (Vite).
-- `frontend-dist/`: Pasta onde o build final do React é servido pelo FastAPI.
+- `backend/calendars/`: Onde ficam salvos os arquivos JSON das escalas (rastreados pelo Git).
+- `docs/`: Pasta servida pelo GitHub Pages contendo os arquivos `.ics` gerados.
+- `.github/workflows/`: Automação que transforma JSON em ICS.
+- `script_gera_ics.py`: O "motor" de conversão que roda no GitHub Actions.
 
 ---
-Desenvolvido para simplificar a gestão de horários e integração com o ecossistema Google.
+Desenvolvido para simplificar a gestão de horários e integração com o ecossistema Google via infraestrutura serverless do GitHub.
