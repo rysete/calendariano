@@ -1,4 +1,3 @@
-import sys
 import os
 import pandas as pd
 from datetime import datetime, date, timedelta
@@ -6,22 +5,23 @@ import json
 import csv
 from io import StringIO
 
-# Adicionar o diretório pai ao sys.path para importar a lógica existente
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../escala-google-calendar")))
-
 try:
-    from escala_calendar_v2 import EscalaProcessor
+    from .vendor.escala_calendar_v2 import EscalaProcessor
 except ImportError:
-    # Se falhar, tenta o caminho absoluto se soubermos onde estamos
-    sys.path.append("/home/ryse/gemini/escala-google-calendar")
+    import sys
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../escala-google-calendar")))
     from escala_calendar_v2 import EscalaProcessor
 
-EXCEL_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../escala-google-calendar/excalibãããã.xlsx"))
+EXCEL_FILE = os.getenv(
+    "ESCALA_DEFAULT_EXCEL",
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "../../escala-google-calendar/excalibãããã.xlsx")),
+)
 
 class EscalaBridge:
-    def __init__(self, excel_path=EXCEL_FILE):
+    def __init__(self, excel_path=EXCEL_FILE, col_nome=0):
         self.excel_path = excel_path
-        self.processor = EscalaProcessor(self.excel_path)
+        self.col_nome = col_nome
+        self.processor = EscalaProcessor(self.excel_path, col_nome=self.col_nome)
 
     def get_months(self):
         months = []
@@ -44,11 +44,15 @@ class EscalaBridge:
         
         result = []
         for i, func in enumerate(funcionarios):
+            num_trabalho = sum(
+                1 for v in func["escala"].values()
+                if (isinstance(v, dict) and v.get("status") == "TRABALHO") or v == "TRABALHO"
+            )
             result.append({
                 "id": i,
                 "name": func.get("nome", "Funcionário"),
                 "turno": func.get("turno", "08x17"),
-                "num_trabalho": sum(1 for status in func["escala"].values() if status == "TRABALHO")
+                "num_trabalho": num_trabalho
             })
         return result
 
@@ -72,19 +76,28 @@ class EscalaBridge:
         nome_func = func.get("nome", func.get("name", "Funcionário"))
         
         # Ordenar os dias
-        for date_str, status in sorted(func["escala"].items()):
+        for date_str, item in sorted(func["escala"].items()):
             data_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
             
             # Obter horários padrão do turno
             turno_info = self.processor.turnos.get(func["turno"], {"inicio": "08:00", "fim": "17:00"})
+            
+            if isinstance(item, dict):
+                status = item.get("status", "FOLGA")
+                start_time = item.get("start_time") or turno_info.get("inicio", "08:00")
+                end_time = item.get("end_time") or turno_info.get("fim", "17:00")
+            else:
+                status = str(item)
+                start_time = turno_info.get("inicio", "08:00")
+                end_time = turno_info.get("fim", "17:00")
             
             escala_list.append({
                 "date": date_str,
                 "day": data_obj.day,
                 "weekday": data_obj.strftime("%A"),
                 "status": status,
-                "start_time": turno_info.get("inicio", "08:00"),
-                "end_time": turno_info.get("fim", "17:00")
+                "start_time": start_time,
+                "end_time": end_time
             })
             
         return {
@@ -122,7 +135,7 @@ class EscalaBridge:
                     end_datetime += timedelta(days=1)
                 
                 writer.writerow({
-                    'Subject': f'🏢 Trabalho - {name}',
+                    'Subject': f'Trabalho - {name}',
                     'Start Date': start_datetime.strftime('%m/%d/%Y'),
                     'Start Time': start_datetime.strftime('%I:%M %p'),
                     'End Date': end_datetime.strftime('%m/%d/%Y'),
@@ -182,7 +195,7 @@ class EscalaBridge:
                         end_dt += timedelta(days=1)
                         
                     event = Event()
-                    event.add('summary', f'🏢 {name}')
+                    event.add('summary', name)
                     event.add('description', f'Escala de Trabalho\nTurno: {turno}\nGerado em: {datetime.now().strftime("%d/%m/%Y %H:%M")}')
                     
                     # Usar vDatetime para garantir o formato ISO em UTC (Z)
