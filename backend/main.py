@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Response, UploadFile, File, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 from typing import List, Optional
 import os
@@ -9,8 +9,14 @@ import shutil
 import uuid
 import logging
 import json
+import sys
 from datetime import datetime, timezone
-from bridge import EscalaBridge
+try:
+    from .bridge import EscalaBridge
+    from . import google_calendar
+except ImportError:
+    from bridge import EscalaBridge
+    import google_calendar
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -26,10 +32,42 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-UPLOAD_DIR = "uploads"
-CALENDAR_DIR = "calendars"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-os.makedirs(CALENDAR_DIR, exist_ok=True)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_DIR = os.path.dirname(BASE_DIR)
+if PROJECT_DIR not in sys.path:
+    sys.path.insert(0, PROJECT_DIR)
+
+def get_writable_dir(env_var: str, default_subfolder: str) -> str:
+    env_val = os.getenv(env_var)
+    if env_val:
+        os.makedirs(env_val, exist_ok=True)
+        return env_val
+    # Tenta criar no BASE_DIR se for gravável
+    local_path = os.path.join(BASE_DIR, default_subfolder)
+    try:
+        os.makedirs(local_path, exist_ok=True)
+        # Testar escrita
+        test_file = os.path.join(local_path, ".write_test")
+        with open(test_file, "w") as f:
+            f.write("ok")
+        os.remove(test_file)
+        return local_path
+    except (OSError, PermissionError):
+        pass
+
+    # Se for Flatpak ou read-only (/app/share), usar XDG_DATA_HOME ou /tmp
+    data_home = os.getenv("XDG_DATA_HOME", os.path.expanduser("~/.local/share"))
+    user_path = os.path.join(data_home, "escala-web-editor", default_subfolder)
+    try:
+        os.makedirs(user_path, exist_ok=True)
+        return user_path
+    except (OSError, PermissionError):
+        tmp_path = os.path.join("/tmp/escala-web-editor", default_subfolder)
+        os.makedirs(tmp_path, exist_ok=True)
+        return tmp_path
+
+UPLOAD_DIR = get_writable_dir("UPLOAD_DIR", "uploads")
+CALENDAR_DIR = get_writable_dir("CALENDAR_DIR", "calendars")
 
 sessions = {}
 
@@ -47,14 +85,18 @@ class EscalaUpdate(BaseModel):
     month_name: str
     escala: List[EscalaItem]
 
+class GoogleSyncRequest(BaseModel):
+    calendar_id: str = "primary"
+    escala: EscalaUpdate
+
 @app.post("/api/upload")
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(file: UploadFile = File(...), col_nome: int = 0):
     file_id = str(uuid.uuid4())
     file_path = os.path.join(UPLOAD_DIR, f"{file_id}_{file.filename}")
     try:
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-        bridge = EscalaBridge(file_path)
+        bridge = EscalaBridge(file_path, col_nome=col_nome)
         sessions[file_id] = bridge
         return {"file_id": file_id, "months": bridge.get_months()}
     except Exception as e:
@@ -96,7 +138,7 @@ async def save_escala_link(data: EscalaUpdate, request: Request):
     base_url = str(request.base_url).rstrip('/')
     calendar_url = f"{base_url}/api/calendar/{safe_name}.ics"
     
-    logger.info(f"💾 Escala salva. Link gerado: {calendar_url}")
+    logger.info(f"Escala salva. Link gerado: {calendar_url}")
     return {"link_id": safe_name, "url": calendar_url}
 
 @app.get("/api/calendar/{link_id}.ics")
@@ -124,8 +166,79 @@ async def get_calendar_ics(link_id: str):
         }
     )
 
+@app.get("/api/google/status")
+async def google_status(request: Request):
+    return google_calendar.status(request)
+
+@app.post("/api/google/credentials")
+async def upload_google_credentials(file: UploadFile = File(...)):
+    if not file.filename or not file.filename.endswith(".json"):
+        raise HTTPException(status_code=400, detail="Envie o arquivo OAuth client JSON do Google.")
+
+    content = await file.read()
+    try:
+        parsed = json.loads(content.decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"JSON invalido: {exc}") from exc
+
+    if "web" not in parsed and "installed" not in parsed:
+        raise HTTPException(status_code=400, detail="O JSON precisa conter a chave 'web' ou 'installed'.")
+
+    google_calendar.CREDENTIALS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    google_calendar.CREDENTIALS_FILE.write_text(json.dumps(parsed, indent=2), encoding="utf-8")
+    return {"ok": True, "path": str(google_calendar.CREDENTIALS_FILE)}
+
+@app.get("/api/google/auth-url")
+async def google_auth_url(request: Request):
+    try:
+        return google_calendar.auth_url(request)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+@app.get("/api/google/callback")
+async def google_callback(request: Request, code: str | None = None, state: str | None = None, error: str | None = None):
+    if error:
+        return HTMLResponse(f"<h1>Google Calendar</h1><p>Autorizacao cancelada: {error}</p>", status_code=400)
+    if not code:
+        return HTMLResponse("<h1>Google Calendar</h1><p>Codigo OAuth ausente.</p>", status_code=400)
+
+    try:
+        google_calendar.finish_oauth(request, code, state)
+    except Exception as exc:
+        return HTMLResponse(f"<h1>Google Calendar</h1><p>Erro ao conectar: {exc}</p>", status_code=400)
+
+    return HTMLResponse(
+        """
+        <h1>Google Calendar conectado</h1>
+        <p>Voce ja pode voltar ao Escala Web Editor e sincronizar a escala.</p>
+        <script>setTimeout(() => window.close(), 1200)</script>
+        """
+    )
+
+@app.get("/api/google/calendars")
+async def google_calendars():
+    try:
+        return google_calendar.list_calendars()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+@app.post("/api/google/sync")
+async def google_sync(data: GoogleSyncRequest):
+    try:
+        return google_calendar.sync_escala(data.escala.dict(), calendar_id=data.calendar_id or "primary")
+    except Exception as exc:
+        logger.exception("Erro ao sincronizar com Google Calendar")
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
 # --- SERVIR FRONTEND ---
-frontend_dist = os.path.abspath("/app/frontend-dist")
+frontend_dist = os.getenv("FRONTEND_DIST")
+if not frontend_dist:
+    candidates = [
+        os.path.abspath("/app/frontend-dist"),
+        os.path.join(PROJECT_DIR, "frontend", "dist"),
+    ]
+    frontend_dist = next((path for path in candidates if os.path.exists(path)), candidates[-1])
+
 if os.path.exists(frontend_dist):
     app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
     @app.exception_handler(404)
@@ -136,5 +249,8 @@ if os.path.exists(frontend_dist):
 
 if __name__ == "__main__":
     import uvicorn
-    # Reload habilitado para atualizações em tempo real
-    uvicorn.run("main:app", host="0.0.0.0", port=8001, reload=True)
+    host = os.getenv("HOST", "127.0.0.1")
+    port = int(os.getenv("PORT", os.getenv("ESCALA_WEB_EDITOR_PORT", 8001)))
+    reload_enabled = os.getenv("UVICORN_RELOAD", "1").strip().lower() in {"1", "true", "yes", "on"}
+    app_ref = "backend.main:app" if os.path.exists(os.path.join(PROJECT_DIR, "backend", "main.py")) else "main:app"
+    uvicorn.run(app_ref, host=host, port=port, reload=reload_enabled)
