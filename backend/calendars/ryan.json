@@ -9,7 +9,10 @@
       "weekday": "Sunday",
       "status": "TRABALHO",
       "start_time": "14:00",
-      "end_time": "22:00"
+      "end_time": "22:00",
+      "colegas": [
+        "PATRICIA"
+      ]
     },
     {
       "date": "2026-11-02",
@@ -17,7 +20,10 @@
       "weekday": "Monday",
       "status": "TRABALHO",
       "start_time": "14:00",
-      "end_time": "22:00"
+      "end_time": "22:00",
+      "colegas": [
+        "BIANCA"
+      ]
     },
     {
       "date": "2026-11-03",
@@ -25,7 +31,11 @@
       "weekday": "Tuesday",
       "status": "FOLGA",
       "start_time": "14:00",
-      "end_time": "22:00"
+      "end_time": "22:00",
+      "colegas": [
+        "MATHEUS",
+        "PATRICIA"
+      ]
     },
     {
       "date": "2026-11-04",
@@ -33,7 +43,12 @@
       "weekday": "Wednesday",
       "status": "TRABALHO",
       "start_time": "14:00",
-      "end_time": "22:00"
+      "end_time": "22:00",
+      "colegas": [
+        "BIANCA",
+        "GUSTAVO",
+        "MATHEUS"
+      ]
     },
     {
       "date": "2026-11-05",
@@ -41,7 +56,13 @@
       "weekday": "Thursday",
       "status": "FOLGA",
       "start_time": "14:00",
-      "end_time": "22:00"
+      "end_time": "22:00",
+      "colegas": [
+        "BIANCA",
+        "GUSTAVO",
+        "MATHEUS",
+        "PATRICIA"
+      ]
     },
     {
       "date": "2026-11-06",
@@ -49,7 +70,12 @@
       "weekday": "Friday",
       "status": "TRABALHO",
       "start_time": "14:00",
-      "end_time": "22:00"
+      "end_time": "22:00",
+      "colegas": [
+        "GUSTAVO",
+        "MATHEUS",
+        "PATRICIA"
+      ]
     },
     {
       "date": "2026-11-07",
@@ -57,7 +83,11 @@
       "weekday": "Saturday",
       "status": "TRABALHO",
       "start_time": "14:00",
-      "end_time": "22:00"
+      "end_time": "22:00",
+      "colegas": [
+        "BIANCA",
+        "MATHEUS"
+      ]
     },
     {
       "date": "2026-11-08",
@@ -65,7 +95,11 @@
       "weekday": "Sunday",
       "status": "FOLGA",
       "start_time": "14:00",
-      "end_time": "22:00"
+      "end_time": "22:00",
+      "colegas": [
+        "BIANCA",
+        "GUSTAVO"
+      ]
     },
     {
       "date": "2026-11-09",
@@ -73,7 +107,12 @@
       "weekday": "Monday",
       "status": "TRABALHO",
       "start_time": "14:00",
-      "end_time": "22:00"
+      "end_time": "22:00",
+      "colegas": [
+        "BIANCA",
+        "MATHEUS",
+        "PATRICIA"
+      ]
     },
     {
       "date": "2026-11-10",
@@ -81,7 +120,12 @@
       "weekday": "Tuesday",
       "status": "TRABALHO",
       "start_time": "14:00",
-      "end_time": "22:00"
+      "end_time": "22:00",
+      "colegas": [
+        "GUSTAVO",
+        "MATHEUS",
+        "PATRICIA"
+      ]
     },
     {
       "date": "2026-11-11",
@@ -89,7 +133,12 @@
       "weekday": "Wednesday",
       "status": "TRABALHO",
       "start_time": "14:00",
-      "end_time": "22:00"
+      "end_time": "22:00",
+      "colegas": [
+        "GUSTAVO",
+        "MATHEUS",
+        "PATRICIA"
+      ]
     },
     {
       "date": "2026-11-12",
@@ -97,7 +146,11 @@
       "weekday": "Thursday",
       "status": "FOLGA",
       "start_time": "14:00",
-      "end_time": "22:00"
+      "end_time": "22:00",
+      "colegas": [
+        "BIANCA",
+        "GUSTAVO"
+      ]
     },
     {
       "date": "2026-11-13",
@@ -105,7 +158,12 @@
       "weekday": "Friday",
       "status": "TRABALHO",
       "start_time": "14:00",
-      "end_time": "22:00"
+      "end_time": "22:00",
+      "colegas": [
+        "BIANCA",
+        "MATHEUS",
+        "PATRICIA"
+      ]
     },
     {
       "date": "2026-11-14",
@@ -113,7 +171,12 @@
       "weekday": "Saturday",
       "status": "TRABALHO",
       "start_time": "14:00",
-      "end_time": "22:00"
+      "end_time": "22:00",
+      "colegas": [
+        "GUSTAVO",
+        "MATHEUS",
+        "PATRICIA"
+      ]
     },
     {
       "date": "2026-11-15",
@@ -121,7 +184,12 @@
       "weekday": "Sunday",
       "status": "FOLGA",
       "start_time": "14:00",
-      "end_time": "22:00"
+      "end_time": "22:00",
+      "colegas": [
+        "GUSTAVO",
+        "MATHEUS",
+        "PATRICIA"
+      ]
     },
     {
       "date": "2026-11-16",
@@ -129,7 +197,11 @@
       "weekday": "Monday",
       "status": "TRABALHO",
       "start_time": "14:00",
-      "end_time": "22:00"
+      "end_time": "22:00",
+      "colegas": [
+        "BIANCA",
+        "GUSTAVO"
+      ]
     },
     {
       "date": "2026-11-17",
@@ -137,7 +209,12 @@
       "weekday": "Tuesday",
       "status": "TRABALHO",
       "start_time": "14:00",
-      "end_time": "22:00"
+      "end_time": "22:00",
+      "colegas": [
+        "BIANCA",
+        "MATHEUS",
+        "PATRICIA"
+      ]
     },
     {
       "date": "2026-11-18",
@@ -145,7 +222,13 @@
       "weekday": "Wednesday",
       "status": "FOLGA",
       "start_time": "14:00",
-      "end_time": "22:00"
+      "end_time": "22:00",
+      "colegas": [
+        "BIANCA",
+        "GUSTAVO",
+        "MATHEUS",
+        "PATRICIA"
+      ]
     },
     {
       "date": "2026-11-19",
@@ -153,7 +236,12 @@
       "weekday": "Thursday",
       "status": "TRABALHO",
       "start_time": "14:00",
-      "end_time": "22:00"
+      "end_time": "22:00",
+      "colegas": [
+        "BIANCA",
+        "GUSTAVO",
+        "PATRICIA"
+      ]
     },
     {
       "date": "2026-11-20",
@@ -161,7 +249,12 @@
       "weekday": "Friday",
       "status": "FERIADO",
       "start_time": "14:00",
-      "end_time": "22:00"
+      "end_time": "22:00",
+      "colegas": [
+        "GUSTAVO",
+        "MATHEUS",
+        "PATRICIA"
+      ]
     },
     {
       "date": "2026-11-21",
@@ -169,7 +262,13 @@
       "weekday": "Saturday",
       "status": "TRABALHO",
       "start_time": "14:00",
-      "end_time": "22:00"
+      "end_time": "22:00",
+      "colegas": [
+        "BIANCA",
+        "GUSTAVO",
+        "MATHEUS",
+        "PATRICIA"
+      ]
     },
     {
       "date": "2026-11-22",
@@ -177,7 +276,11 @@
       "weekday": "Sunday",
       "status": "TRABALHO",
       "start_time": "14:00",
-      "end_time": "22:00"
+      "end_time": "22:00",
+      "colegas": [
+        "BIANCA",
+        "MATHEUS"
+      ]
     },
     {
       "date": "2026-11-23",
@@ -185,7 +288,12 @@
       "weekday": "Monday",
       "status": "FOLGA",
       "start_time": "14:00",
-      "end_time": "22:00"
+      "end_time": "22:00",
+      "colegas": [
+        "BIANCA",
+        "GUSTAVO",
+        "PATRICIA"
+      ]
     },
     {
       "date": "2026-11-24",
@@ -193,7 +301,11 @@
       "weekday": "Tuesday",
       "status": "TRABALHO",
       "start_time": "14:00",
-      "end_time": "22:00"
+      "end_time": "22:00",
+      "colegas": [
+        "GUSTAVO",
+        "PATRICIA"
+      ]
     },
     {
       "date": "2026-11-25",
@@ -201,7 +313,11 @@
       "weekday": "Wednesday",
       "status": "TRABALHO",
       "start_time": "14:00",
-      "end_time": "22:00"
+      "end_time": "22:00",
+      "colegas": [
+        "BIANCA",
+        "MATHEUS"
+      ]
     },
     {
       "date": "2026-11-26",
@@ -209,7 +325,13 @@
       "weekday": "Thursday",
       "status": "FOLGA",
       "start_time": "14:00",
-      "end_time": "22:00"
+      "end_time": "22:00",
+      "colegas": [
+        "BIANCA",
+        "GUSTAVO",
+        "MATHEUS",
+        "PATRICIA"
+      ]
     },
     {
       "date": "2026-11-27",
@@ -217,7 +339,13 @@
       "weekday": "Friday",
       "status": "TRABALHO",
       "start_time": "14:00",
-      "end_time": "22:00"
+      "end_time": "22:00",
+      "colegas": [
+        "BIANCA",
+        "GUSTAVO",
+        "MATHEUS",
+        "PATRICIA"
+      ]
     },
     {
       "date": "2026-11-28",
@@ -225,7 +353,10 @@
       "weekday": "Saturday",
       "status": "TRABALHO",
       "start_time": "14:00",
-      "end_time": "22:00"
+      "end_time": "22:00",
+      "colegas": [
+        "BIANCA"
+      ]
     },
     {
       "date": "2026-11-29",
@@ -233,7 +364,10 @@
       "weekday": "Sunday",
       "status": "TRABALHO",
       "start_time": "14:00",
-      "end_time": "22:00"
+      "end_time": "22:00",
+      "colegas": [
+        "PATRICIA"
+      ]
     },
     {
       "date": "2026-11-30",
@@ -241,7 +375,12 @@
       "weekday": "Monday",
       "status": "TRABALHO",
       "start_time": "14:00",
-      "end_time": "22:00"
+      "end_time": "22:00",
+      "colegas": [
+        "BIANCA",
+        "GUSTAVO",
+        "MATHEUS"
+      ]
     }
   ]
 }

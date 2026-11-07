@@ -49,7 +49,7 @@ def generate_ics_content(data):
             if end_time_obj < start_time_obj:
                 end_dt += timedelta(days=1)
 
-            eventos.append((data_str, start_dt, end_dt))
+            eventos.append((data_str, start_dt, end_dt, item.get("colegas") or []))
         except Exception as e:
             print(f"Erro ao processar dia {data_str}: {e}")
 
@@ -67,11 +67,21 @@ def generate_ics_content(data):
         + " - "
         + fim.astimezone(LOCAL_TZ).strftime("%d/%m/%Y")
     )
-    descricao = f"Escala de Trabalho\nTurno: {turno}\nPeriodo: {periodo}"
-
     safe_name = "".join(c for c in name if c.isalnum())
 
-    for data_str, start_dt, end_dt in eventos:
+    for data_str, start_dt, end_dt, colegas in eventos:
+        # quem divide o mesmo bloco nesse dia
+        if colegas:
+            linhas = [
+                "Escala de Trabalho",
+                f"Turno: {turno}",
+                "Com o time: " + ", ".join(colegas),
+                f"Periodo: {periodo}",
+            ]
+        else:
+            linhas = ["Escala de Trabalho", f"Turno: {turno}", f"Periodo: {periodo}"]
+        descricao = "\n".join(linhas)
+
         event = Event()
         event.add('summary', f'🏢 {name}')
         event.add('description', descricao)
