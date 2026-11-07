@@ -27,50 +27,68 @@ def generate_ics_content(data):
 
     name = data.get("name", "Funcionario")
     turno = data.get("turno", "N/A")
-    
-    now_utc = datetime.now(timezone.utc)
-    
+
+    # Monta os eventos primeiro para poder derivar timestamps deterministicos.
+    eventos = []
     for item in data.get("escala", []):
-        if item.get("status") == "TRABALHO":
-            data_str = item.get("date")
-            hora_inicio = item.get("start_time", "08:00")
-            hora_fim = item.get("end_time", "17:00")
-            
-            try:
-                # Parsear data e horas
-                data_obj = datetime.strptime(data_str, "%Y-%m-%d").date()
-                start_time_obj = datetime.strptime(hora_inicio, "%H:%M").time()
-                end_time_obj = datetime.strptime(hora_fim, "%H:%M").time()
-                
-                # Criar datetimes localizados e converter para UTC
-                start_dt = LOCAL_TZ.localize(datetime.combine(data_obj, start_time_obj)).astimezone(timezone.utc)
-                end_dt = LOCAL_TZ.localize(datetime.combine(data_obj, end_time_obj)).astimezone(timezone.utc)
-                
-                # Ajustar para virada de dia no turno 22x06
-                if end_time_obj < start_time_obj:
-                    end_dt += timedelta(days=1)
-                    
-                event = Event()
-                event.add('summary', f'🏢 {name}')
-                event.add('description', f'Escala de Trabalho\nTurno: {turno}\nGerado em: {datetime.now().strftime("%d/%m/%Y %H:%M")}')
-                
-                event.add('dtstart', start_dt)
-                event.add('dtend', end_dt)
-                event.add('dtstamp', now_utc)
-                
-                # UID fixo e único para evitar duplicação ou rejeição do Google
-                safe_name = "".join(c for c in name if c.isalnum())
-                uid = f"{data_str}-{safe_name}@escala.web.ryse.io"
-                event.add('uid', uid)
-                
-                event.add('status', 'CONFIRMED')
-                event.add('transp', 'OPAQUE')
-                event.add('sequence', 0)
-                
-                cal.add_component(event)
-            except Exception as e:
-                print(f"Erro ao processar dia {data_str}: {e}")
-    
+        if item.get("status") != "TRABALHO":
+            continue
+        data_str = item.get("date")
+        hora_inicio = item.get("start_time", "08:00")
+        hora_fim = item.get("end_time", "17:00")
+
+        try:
+            data_obj = datetime.strptime(data_str, "%Y-%m-%d").date()
+            start_time_obj = datetime.strptime(hora_inicio, "%H:%M").time()
+            end_time_obj = datetime.strptime(hora_fim, "%H:%M").time()
+
+            start_dt = LOCAL_TZ.localize(datetime.combine(data_obj, start_time_obj)).astimezone(timezone.utc)
+            end_dt = LOCAL_TZ.localize(datetime.combine(data_obj, end_time_obj)).astimezone(timezone.utc)
+
+            # Ajustar para virada de dia no turno 22x06
+            if end_time_obj < start_time_obj:
+                end_dt += timedelta(days=1)
+
+            eventos.append((data_str, start_dt, end_dt))
+        except Exception as e:
+            print(f"Erro ao processar dia {data_str}: {e}")
+
+    if not eventos:
+        return cal.to_ical()
+
+    # Timestamps derivados dos dados (nao de "agora"), para que o mesmo JSON
+    # sempre gere exatamente o mesmo .ics. Sem isso, todo push gera um commit
+    # novo so por causa do DTSTAMP.
+    inicio = min(e[1] for e in eventos)
+    fim = max(e[1] for e in eventos)
+    stamp = fim
+    periodo = (
+        inicio.astimezone(LOCAL_TZ).strftime("%d/%m/%Y")
+        + " - "
+        + fim.astimezone(LOCAL_TZ).strftime("%d/%m/%Y")
+    )
+    descricao = f"Escala de Trabalho\nTurno: {turno}\nPeriodo: {periodo}"
+
+    safe_name = "".join(c for c in name if c.isalnum())
+
+    for data_str, start_dt, end_dt in eventos:
+        event = Event()
+        event.add('summary', f'🏢 {name}')
+        event.add('description', descricao)
+
+        event.add('dtstart', start_dt)
+        event.add('dtend', end_dt)
+        event.add('dtstamp', stamp)
+
+        # UID fixo e único para evitar duplicação ou rejeição do Google
+        event.add('uid', f"{data_str}-{safe_name}@escala.web.ryse.io")
+
+        event.add('status', 'CONFIRMED')
+        event.add('transp', 'OPAQUE')
+        event.add('sequence', 0)
+
+        cal.add_component(event)
+
     return cal.to_ical()
 
 def pick_principal(json_files):
