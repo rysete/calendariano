@@ -113,10 +113,14 @@ escala-publicar "~/Downloads/ESCALA CCT CAMPINAS IMPORTAÇÃO - OUTUBRO 2026 (2)
 ```
 Esse comando lê a planilha, gera `backend/calendars/<nome>.json`, gera o `.ics`, faz
 commit/push e espera o GitHub Pages publicar. Opções úteis:
-- `--desde YYYY-MM` publica a partir de um mês (padrão: do mês atual em diante)
+- `--desde YYYY-MM` / `--ate YYYY-MM` publicam uma faixa de meses
 - `--todos` publica todos os meses da planilha
 - `--sem-push` só gera os arquivos locais
 - `--dry-run` mostra o que seria publicado sem gravar nada
+
+**Por padrão só o mês corrente é publicado** — a escala dos meses seguintes fica de
+fora até a vez, para não publicar turno provisório no Agenda. Quando chegar a
+planilha do mês novo, é só rodar o comando de novo.
 
 **Jeito manual:**
 ```bash
