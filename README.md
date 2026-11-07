@@ -136,6 +136,22 @@ git push
 O `calendario.ics` é sempre gerado a partir do JSON mais recente em
 `backend/calendars/` (ou de um arquivo chamado `calendario.json`, se existir).
 
+### Quem está no mesmo bloco
+
+Cada dia do JSON carrega a lista `colegas`: as pessoas que estão de turno
+**no mesmo dia e no mesmo horário** do funcionário. Isso aparece na descrição
+do evento no Google Agenda:
+
+```
+Escala de Trabalho
+Turno: 14x22
+Com o time: BIANCA, MATHEUS, PATRICIA
+Periodo: 01/11/2026 - 30/11/2026
+```
+
+A lista é recalculada a cada publicação, então acompanha mudanças de escala.
+Linhas de resumo da planilha (ex.: `Total Funcionários: 13`) são ignoradas.
+
 *Nota: O Google Agenda pode levar de 8h a 24h para atualizar automaticamente. Para forçar a atualização imediata ao adicionar, use `.../calendario.ics?v=1`.*
 
 ## 📂 Estrutura de Pastas
