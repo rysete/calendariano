@@ -1,34 +1,99 @@
-# Escala Web Editor 📅
+# Escala Local
 
-Uma solução web completa e interativa para gerenciar, editar e sincronizar escalas de trabalho a partir de planilhas Excel para o Google Agenda.
+Editor local single-user para carregar planilhas Excel de escala, ajustar dias/horarios e exportar CSV ou ICS para agenda.
 
-## 🚀 Funcionalidades
+## Funcionalidades
 
-- **Upload Dinâmico:** Arraste e solte planilhas `.xlsx` diretamente no navegador.
-- **Editor Interativo:** Clique nos dias para alternar entre TRABALHO e FOLGA.
-- **Edição de Turno Textual:** Digite o turno (ex: `14x22`) e o sistema auto-preenche os horários de todos os dias.
-- **Exportação Flexível:**
-  - Baixe o arquivo **CSV** para importação manual.
-  - Baixe o arquivo **ICS (iCalendar)** para testes locais.
-  - **Automação via GitHub Pages:** Publique sua escala e deixe o Google Agenda atualizar sozinho sem servidor ligado 24h.
+- App local em GTK 4/Libadwaita, sem servidor web embutido.
+- Carregamento por botao nativo e drag-and-drop da janela GTK.
+- Editor de dias para alternar Trabalho/Folga e ajustar horarios.
+- Exportacao CSV e ICS.
 
-## 🛠️ Stack Tecnológica
+## Stack
 
-- **Backend:** Python (FastAPI) + logic de processamento `openpyxl`.
-- **Frontend:** React + TypeScript + Vite + Lucide Icons.
-- **Infra:** Docker & Docker Compose.
-- **Automação:** GitHub Actions + GitHub Pages para hospedagem estática de arquivos `.ics`.
+- Python + PyGObject/GTK 4 + Libadwaita para a janela nativa, seguindo a base do FFMBEATER GTK.
+- `pandas`, `openpyxl` e o processador vendorizado em `backend/vendor/`.
+- Flatpak para instalacao local.
 
-## 📦 Como Rodar (via Docker)
+## Como Rodar
 
-1. **Subir a Stack:**
-   ```bash
-   cd escala-web-editor
-   docker-compose up -d --build
-   ```
+### App GTK local
 
-2. **Acessar Localmente:**
-   Abra [http://localhost:8001](http://localhost:8001) no seu navegador.
+Use o venv do backend e abra a janela GTK/libadwaita:
+
+```bash
+backend/venv/bin/python -m pip install -r requirements.txt
+./run_native.sh
+```
+
+No host local, o GTK/PyGObject vem do sistema. Em Arch, por exemplo, instale `gtk4` e `python-gobject` se `./run_native.sh` nao abrir a janela.
+
+### App web local auxiliar
+
+Use este modo para rodar a versao web sem container. Ele compila o frontend, sobe o FastAPI servindo o bundle final e abre `http://127.0.0.1:8765` no navegador:
+
+```bash
+./run_local_web.sh
+```
+
+Para Google Agenda neste modo, cadastre no Google Cloud exatamente:
+
+```text
+http://127.0.0.1:8765/api/google/callback
+```
+
+Se mudar a porta com `ESCALA_WEB_EDITOR_PORT`, cadastre a URI com a mesma porta.
+
+### Flatpak local
+
+Cria e instala o app no usuario:
+
+```bash
+./build-flatpak.sh
+```
+
+Depois rode pelo menu do sistema ou pelo terminal:
+
+```bash
+flatpak run org.ryse.EscalaWebEditor
+```
+
+O app abre a interface GTK/libadwaita nativa e grava logs em `~/escala-local.log`.
+
+### Smoke test
+
+```bash
+bash scripts/native-smoke.sh
+```
+
+O teste importa a camada nativa, carrega uma planilha, seleciona a primeira escala e valida exportacao CSV/ICS.
+
+## Google Agenda direto
+
+A versao web e o app GTK nativo tem sync direto com Google Calendar, alem do link ICS/webcal.
+
+No app GTK:
+
+1. Abra `Configuracoes`.
+2. Importe o OAuth Client JSON.
+3. Clique em `Conectar`.
+4. Depois de autorizado, clique em `Atualizar`.
+5. Escolha a agenda no seletor do topo e use `Sync Google`.
+
+Para o GTK, prefira um OAuth Client do tipo `Desktop app`. Se usar `Web application`, cadastre tambem o redirect local `http://127.0.0.1:8766/` ou use o fluxo web auxiliar.
+
+Fluxo:
+
+1. No Google Cloud Console, crie um OAuth Client do tipo `Web application`.
+2. Em `Authorized redirect URIs`, cadastre exatamente a URL mostrada em `Configuracoes > Google Redirect URI`.
+   - App web local: `http://127.0.0.1:8765/api/google/callback`
+   - Container local: `http://127.0.0.1:8001/api/google/callback`
+   - Tunnel: use a URL `https://...trycloudflare.com/api/google/callback` mostrada pelo app.
+3. Baixe o JSON do OAuth Client.
+4. No app web, abra `Configuracoes`, envie o `Google OAuth Client JSON` e clique em `Conectar Google`.
+5. Depois de autorizar, clique em `Atualizar status`, escolha o calendario e use `Sync Google`.
+
+O sync usa IDs determinísticos por funcionario/data, entao sincronizar de novo atualiza eventos existentes em vez de duplicar. Dias alterados para folga removem o evento correspondente.
 
 ## 🤖 Automação de Calendário (GitHub Pages)
 
@@ -41,7 +106,19 @@ Para que o Google Agenda atualize sua escala sem você precisar de um servidor l
 4. O Google Agenda lê o arquivo `.ics` diretamente do seu GitHub Pages.
 
 ### Fluxo de Trabalho (Workflow):
-Sempre que salvar uma escala nova:
+
+**Jeito rápido (comando `escala-publicar`)** — faz tudo em uma tacada:
+```bash
+escala-publicar "~/Downloads/ESCALA CCT CAMPINAS IMPORTAÇÃO - OUTUBRO 2026 (2).xlsx" --funcionario RYAN
+```
+Esse comando lê a planilha, gera `backend/calendars/<nome>.json`, gera o `.ics`, faz
+commit/push e espera o GitHub Pages publicar. Opções úteis:
+- `--desde YYYY-MM` publica a partir de um mês (padrão: do mês atual em diante)
+- `--todos` publica todos os meses da planilha
+- `--sem-push` só gera os arquivos locais
+- `--dry-run` mostra o que seria publicado sem gravar nada
+
+**Jeito manual:**
 ```bash
 git add 'backend/calendars/*.json'
 git commit -m "update: nova escala de trabalho"
@@ -51,6 +128,9 @@ git push
 ### URLs da sua Agenda:
 - **Principal:** `https://rysete.github.io/calendariano/calendario.ics`
 - **Por Usuário:** `https://rysete.github.io/calendariano/NOME_DO_ARQUIVO.ics`
+
+O `calendario.ics` é sempre gerado a partir do JSON mais recente em
+`backend/calendars/` (ou de um arquivo chamado `calendario.json`, se existir).
 
 *Nota: O Google Agenda pode levar de 8h a 24h para atualizar automaticamente. Para forçar a atualização imediata ao adicionar, use `.../calendario.ics?v=1`.*
 
