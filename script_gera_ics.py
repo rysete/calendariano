@@ -73,6 +73,21 @@ def generate_ics_content(data):
     
     return cal.to_ical()
 
+def pick_principal(json_files):
+    """
+    Escolhe qual JSON gera o 'calendario.ics' principal.
+
+    Prioridade:
+      1. arquivo chamado 'calendario.json'
+      2. o JSON modificado mais recentemente (o ultimo publicado)
+    """
+    principal_name = "calendario.json"
+    if principal_name in json_files:
+        return principal_name
+    newest = max(json_files, key=lambda f: os.path.getmtime(os.path.join(CALENDARS_DIR, f)))
+    return newest
+
+
 def main():
     if not os.path.exists(DOCS_DIR):
         os.makedirs(DOCS_DIR)
@@ -87,6 +102,8 @@ def main():
     if not json_files:
         print("Nenhum arquivo JSON encontrado para processar.")
         return
+
+    principal = pick_principal(json_files)
 
     for filename in json_files:
         json_path = os.path.join(CALENDARS_DIR, filename)
@@ -103,12 +120,12 @@ def main():
             with open(ics_path, "wb") as f:
                 f.write(ics_content)
             
-            # Também criar um 'calendario.ics' genérico se for o único ou principal
-            if len(json_files) == 1:
+            # O calendario.ics principal é sempre gerado (a partir do JSON principal)
+            if filename == principal:
                 generic_path = os.path.join(DOCS_DIR, "calendario.ics")
                 with open(generic_path, "wb") as f:
                     f.write(ics_content)
-                print(f"Copiado para calendario.ics")
+                print(f"Copiado para calendario.ics (principal: {filename})")
 
         except Exception as e:
             print(f"Erro ao processar {filename}: {e}")
