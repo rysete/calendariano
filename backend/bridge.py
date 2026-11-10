@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime, date, timedelta
 import json
 import csv
+import zlib
 from io import StringIO
 
 try:
@@ -275,9 +276,13 @@ class EscalaBridge:
                     uid = f"{data_str}-{safe_name}@escala.web.ryse.io"
                     event.add('uid', uid)
                     
+                    content_hash = zlib.crc32(f"{start_dt.isoformat()}{end_dt.isoformat()}{descricao}".encode("utf-8"))
+                    sequence_num = content_hash % 100000
+
                     event.add('status', 'CONFIRMED')
                     event.add('transp', 'OPAQUE')
-                    event.add('sequence', 0)
+                    event.add('sequence', sequence_num)
+                    event.add('last-modified', now_utc)
                     
                     cal.add_component(event)
                 except Exception as e:

@@ -2,6 +2,7 @@ import os
 import json
 import pytz
 import uuid
+import zlib
 from datetime import datetime, timezone, timedelta
 from icalendar import Calendar, Event, vDatetime
 
@@ -93,9 +94,13 @@ def generate_ics_content(data):
         # UID fixo e único para evitar duplicação ou rejeição do Google
         event.add('uid', f"{data_str}-{safe_name}@escala.web.ryse.io")
 
+        content_hash = zlib.crc32(f"{start_dt.isoformat()}{end_dt.isoformat()}{descricao}".encode("utf-8"))
+        sequence_num = content_hash % 100000
+
         event.add('status', 'CONFIRMED')
         event.add('transp', 'OPAQUE')
-        event.add('sequence', 0)
+        event.add('sequence', sequence_num)
+        event.add('last-modified', stamp)
 
         cal.add_component(event)
 
