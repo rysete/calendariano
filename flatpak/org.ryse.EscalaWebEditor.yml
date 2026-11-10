@@ -1,0 +1,32 @@
+app-id: org.ryse.EscalaWebEditor
+runtime: org.gnome.Platform
+runtime-version: "49"
+sdk: org.gnome.Sdk
+command: escala-web-editor
+finish-args:
+  - --share=ipc
+  - --share=network
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --filesystem=host
+modules:
+  - name: escala-web-editor
+    buildsystem: simple
+    build-options:
+      build-args:
+        - --share=network
+    build-commands:
+      - python3 -m pip install --ignore-installed --prefix=/app --no-cache-dir -r requirements.txt
+      - install -Dm755 flatpak/escala-web-editor /app/bin/escala-web-editor
+      - mkdir -p /app/share/escala-web-editor/backend/uploads /app/share/escala-web-editor/backend/calendars /app/share/escala-web-editor/native
+      - cp backend/*.py /app/share/escala-web-editor/backend/
+      - cp -r backend/vendor /app/share/escala-web-editor/backend/vendor
+      - cp native/*.py /app/share/escala-web-editor/native/
+      - cp requirements.txt /app/share/escala-web-editor/
+      - install -Dm644 flatpak/org.ryse.EscalaWebEditor.desktop /app/share/applications/org.ryse.EscalaWebEditor.desktop
+      - install -Dm644 flatpak/org.ryse.EscalaWebEditor.metainfo.xml /app/share/metainfo/org.ryse.EscalaWebEditor.metainfo.xml
+      - install -Dm644 flatpak/org.ryse.EscalaWebEditor.svg /app/share/icons/hicolor/scalable/apps/org.ryse.EscalaWebEditor.svg
+    sources:
+      - type: dir
+        path: ..

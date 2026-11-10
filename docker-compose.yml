@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   escala-web-editor:
     build:
@@ -17,9 +15,11 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
+    tty: true
+    stdin_open: true
     restart: unless-stopped
-    # Rodar via uvicorn com reload dentro do container
-    command: /usr/local/bin/python -m uvicorn backend.main:app --host 0.0.0.0 --port 8001 --reload
+    # Rodar o app local completo na porta 8001
+    command: /usr/local/bin/python -m backend.main
 
   # SERVIÇO DE TÚNEL (Ligar/Desligar conforme necessário)
   tunnel:

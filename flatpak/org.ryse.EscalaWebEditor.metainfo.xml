@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.ryse.EscalaWebEditor</id>
+  <name>Escala Local</name>
+  <summary>Editor local de escalas de trabalho</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <description>
+    <p>Aplicativo local para importar planilhas Excel, editar escalas e exportar CSV ou ICS.</p>
+  </description>
+  <launchable type="desktop-id">org.ryse.EscalaWebEditor.desktop</launchable>
+  <releases>
+    <release version="0.1.0" date="2026-06-04"/>
+  </releases>
+</component>

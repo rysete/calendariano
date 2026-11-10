@@ -27,6 +27,20 @@ backend/uploads/*
 .env
 .env.local
 .env.*.local
+backend/google_credentials.json
+backend/google_credential.json
+backend/google_token.json
+backend/google_oauth_states.json
+credentials.json
+token.pickle
+
+# Flatpak local build artifacts
+.flatpak-build/
+.flatpak-builder/
+.flatpak-repo/
+
+# Backup do diretorio backend/calendars que era root-owned (Docker bind mount)
+backend/.calendars-root-bkp/
 
 # Editor/System
 .vscode/

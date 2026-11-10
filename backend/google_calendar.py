@@ -290,10 +290,20 @@ def event_body(data: dict[str, Any], item: dict[str, Any]) -> dict[str, Any]:
     if end_time < start_time:
         end_dt += timedelta(days=1)
 
+    colegas = item.get("colegas") or []
+    linhas = [
+        "Escala de trabalho",
+        f"Turno: {turno}",
+        f"Funcionario: {name}",
+        f"Mes: {month_name}",
+    ]
+    if colegas:
+        linhas.append("Com o time: " + ", ".join(colegas))
+
     return {
         "id": event_id(name, date_str),
         "summary": f"Trabalho - {name}",
-        "description": f"Escala de trabalho\nTurno: {turno}\nFuncionario: {name}\nMes: {month_name}",
+        "description": "\n".join(linhas),
         "start": {"dateTime": start_dt.isoformat(), "timeZone": TIMEZONE},
         "end": {"dateTime": end_dt.isoformat(), "timeZone": TIMEZONE},
         "transparency": "opaque",

@@ -56,6 +56,56 @@ class EscalaBridge:
             })
         return result
 
+    @staticmethod
+    def is_pseudo_employee(nome):
+        if not nome:
+            return True
+        clean = str(nome).strip().lower()
+        return clean.startswith("total") or clean.startswith("resumo") or clean == ""
+
+    def get_month_schedule_blocks(self, month_id):
+        if not hasattr(self, "_schedule_blocks_cache"):
+            self._schedule_blocks_cache = {}
+        if month_id in self._schedule_blocks_cache:
+            return self._schedule_blocks_cache[month_id]
+
+        if month_id not in self.processor.meses_disponiveis:
+            return {}
+
+        mes_info = self.processor.meses_disponiveis[month_id]
+        funcionarios = self.processor.ler_funcionarios_mes(mes_info)
+
+        por_data = {}
+        for other_func in funcionarios:
+            other_name = other_func.get("nome", other_func.get("name", "")).strip()
+            if self.is_pseudo_employee(other_name):
+                continue
+            other_turno = other_func.get("turno", "08x17")
+            other_turno_info = self.processor.turnos.get(other_turno, {"inicio": "08:00", "fim": "17:00"})
+            for d_str, d_val in other_func.get("escala", {}).items():
+                if isinstance(d_val, dict):
+                    d_status = d_val.get("status", "FOLGA")
+                    d_st = d_val.get("start_time") or other_turno_info.get("inicio", "08:00")
+                    d_et = d_val.get("end_time") or other_turno_info.get("fim", "17:00")
+                else:
+                    d_status = str(d_val)
+                    d_st = other_turno_info.get("inicio", "08:00")
+                    d_et = other_turno_info.get("fim", "17:00")
+
+                if d_status == "TRABALHO":
+                    bloco = (d_st, d_et)
+                    por_data.setdefault(d_str, {}).setdefault(bloco, set()).add(other_name)
+
+        self._schedule_blocks_cache[month_id] = por_data
+        return por_data
+
+    def get_colegas(self, month_id, date_str, start_time, end_time, exclude_name=""):
+        por_data = self.get_month_schedule_blocks(month_id)
+        bloco = (start_time, end_time)
+        colegas_set = por_data.get(date_str, {}).get(bloco, set())
+        exclude_clean = exclude_name.strip().lower()
+        return sorted([n for n in colegas_set if n.strip().lower() != exclude_clean])
+
     def get_turnos(self):
         return self.processor.turnos
 
@@ -91,13 +141,16 @@ class EscalaBridge:
                 start_time = turno_info.get("inicio", "08:00")
                 end_time = turno_info.get("fim", "17:00")
             
+            colegas = self.get_colegas(month_id, date_str, start_time, end_time, nome_func)
+
             escala_list.append({
                 "date": date_str,
                 "day": data_obj.day,
                 "weekday": data_obj.strftime("%A"),
                 "status": status,
                 "start_time": start_time,
-                "end_time": end_time
+                "end_time": end_time,
+                "colegas": colegas
             })
             
         return {
@@ -141,7 +194,11 @@ class EscalaBridge:
                     'End Date': end_datetime.strftime('%m/%d/%Y'),
                     'End Time': end_datetime.strftime('%I:%M %p'),
                     'All Day Event': 'False',
-                    'Description': f'Escala de trabalho - Turno: {turno} - Funcionário: {name} - Mês: {mes_ano}',
+                    'Description': (
+                        f'Escala de trabalho - Turno: {turno} - Funcionário: {name} - Mês: {mes_ano}'
+                        + (f' - Com o time: {", ".join(item.get("colegas") or [])}'
+                           if item.get("colegas") else '')
+                    ),
                     'Location': '',
                     'Private': 'False'
                 })
@@ -196,7 +253,16 @@ class EscalaBridge:
                         
                     event = Event()
                     event.add('summary', name)
-                    event.add('description', f'Escala de Trabalho\nTurno: {turno}\nGerado em: {datetime.now().strftime("%d/%m/%Y %H:%M")}')
+                    colegas = item.get("colegas") or []
+                    if colegas:
+                        descricao = (
+                            f'Escala de Trabalho\nTurno: {turno}\n'
+                            f'Com o time: {", ".join(colegas)}\n'
+                            f'Gerado em: {datetime.now().strftime("%d/%m/%Y %H:%M")}'
+                        )
+                    else:
+                        descricao = f'Escala de Trabalho\nTurno: {turno}\nGerado em: {datetime.now().strftime("%d/%m/%Y %H:%M")}'
+                    event.add('description', descricao)
                     
                     # Usar vDatetime para garantir o formato ISO em UTC (Z)
                     event.add('dtstart', start_dt)

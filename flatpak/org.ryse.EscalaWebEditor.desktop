@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Escala Local
+Comment=Editor local de escalas de trabalho
+Exec=escala-web-editor
+Icon=org.ryse.EscalaWebEditor
+Terminal=false
+Categories=Office;Calendar;

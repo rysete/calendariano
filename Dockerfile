@@ -21,8 +21,8 @@ COPY backend/requirements.txt ./backend/
 RUN pip install --no-cache-dir -r backend/requirements.txt
 
 COPY backend/ ./backend/
-# Criar pasta de uploads
-RUN mkdir -p /app/backend/uploads
+# Criar pastas persistidas pelo app
+RUN mkdir -p /app/backend/uploads /app/backend/calendars
 
 # Copiar Frontend Build para ser servido pelo FastAPI (opcional) ou manter separado
 # Aqui vamos manter a estrutura para rodar os dois

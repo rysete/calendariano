@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+APP_DIR=${ESCALA_APP_DIR:-/app/share/escala-web-editor}
+PYTHON_BIN=${ESCALA_PYTHON:-python3}
+
+export ESCALA_APP_DIR="$APP_DIR"
+export PYTHONPATH="$APP_DIR${PYTHONPATH:+:$PYTHONPATH}"
+
+cd "$APP_DIR"
+exec "$PYTHON_BIN" -m native.ui "$@" 2>&1 | tee "$HOME/escala-local.log"

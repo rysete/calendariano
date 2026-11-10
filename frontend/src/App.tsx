@@ -24,6 +24,7 @@ interface EscalaItem {
   status: string;
   start_time: string;
   end_time: string;
+  colegas?: string[];
 }
 
 interface EscalaData {
@@ -38,7 +39,23 @@ interface TurnoInfo {
   fim: string;
 }
 
-const API_BASE = 'http://localhost:8001/api';
+interface GoogleStatus {
+  configured: boolean;
+  authenticated: boolean;
+  redirect_uri: string;
+  client_type: string | null;
+  error?: string | null;
+}
+
+interface GoogleCalendarInfo {
+  id: string;
+  summary: string;
+  primary?: boolean;
+  access_role?: string;
+  can_write?: boolean;
+}
+
+const API_BASE = `${window.location.origin}/api`;
 
 function App() {
   const [fileId, setFileId] = useState<string | null>(null);
@@ -53,6 +70,119 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [calendarUrl, setCalendarUrl] = useState<string | null>(null);
+  const [nameColumn, setNameColumn] = useState<number>(0);
+  const [githubUser, setGithubUser] = useState<string>('');
+  const [githubRepo, setGithubRepo] = useState<string>('');
+  const [googleStatus, setGoogleStatus] = useState<GoogleStatus | null>(null);
+  const [googleCalendars, setGoogleCalendars] = useState<GoogleCalendarInfo[]>([]);
+  const [selectedGoogleCalendar, setSelectedGoogleCalendar] = useState<string>('primary');
+  const [googleSyncing, setGoogleSyncing] = useState(false);
+  const [googleMessage, setGoogleMessage] = useState<string | null>(null);
+
+  // Carregar configurações do localStorage
+  useEffect(() => {
+    const savedUser = localStorage.getItem('escala_github_user');
+    const savedRepo = localStorage.getItem('escala_github_repo');
+    const savedCol = localStorage.getItem('escala_name_column');
+    const savedGoogleCalendar = localStorage.getItem('escala_google_calendar');
+    if (savedUser) setGithubUser(savedUser);
+    if (savedRepo) setGithubRepo(savedRepo);
+    if (savedCol) setNameColumn(parseInt(savedCol));
+    if (savedGoogleCalendar) setSelectedGoogleCalendar(savedGoogleCalendar);
+  }, []);
+
+  const saveSettings = () => {
+    localStorage.setItem('escala_github_user', githubUser);
+    localStorage.setItem('escala_github_repo', githubRepo);
+    localStorage.setItem('escala_name_column', nameColumn.toString());
+    localStorage.setItem('escala_google_calendar', selectedGoogleCalendar);
+    alert("Configurações salvas!");
+  };
+
+  const loadGoogleStatus = async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/google/status`, { params: { t: Date.now() } });
+      setGoogleStatus(res.data);
+      if (res.data.authenticated) {
+        const calendarsRes = await axios.get(`${API_BASE}/google/calendars`);
+        const writableCalendars = calendarsRes.data.filter((cal: GoogleCalendarInfo) => cal.can_write !== false);
+        setGoogleCalendars(writableCalendars);
+        const saved = localStorage.getItem('escala_google_calendar');
+        const savedStillExists = writableCalendars.find((cal: GoogleCalendarInfo) => cal.id === saved);
+        if (saved && savedStillExists) {
+          setSelectedGoogleCalendar(saved);
+        } else {
+          const primary = writableCalendars.find((cal: GoogleCalendarInfo) => cal.primary);
+          setSelectedGoogleCalendar(primary?.id || writableCalendars[0]?.id || 'primary');
+        }
+      }
+    } catch (err: any) {
+      setGoogleStatus(null);
+      console.error(err.response?.data?.detail || "Erro ao carregar status Google");
+    }
+  };
+
+  useEffect(() => {
+    loadGoogleStatus();
+  }, []);
+
+  const uploadGoogleCredentials = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('file', file);
+    setSaving(true);
+    setError(null);
+    try {
+      await axios.post(`${API_BASE}/google/credentials`, formData);
+      setGoogleMessage("Credenciais Google salvas. Agora conecte a conta.");
+      await loadGoogleStatus();
+    } catch (err: any) {
+      setError(err.response?.data?.detail || "Erro ao salvar credenciais Google.");
+    } finally {
+      setSaving(false);
+      event.target.value = '';
+    }
+  };
+
+  const connectGoogle = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await axios.get(`${API_BASE}/google/auth-url`, { params: { t: Date.now() } });
+      window.open(res.data.auth_url, '_blank', 'noopener,noreferrer,width=960,height=760');
+      setGoogleMessage("Autorize no Google e depois clique em Atualizar status.");
+    } catch (err: any) {
+      setError(err.response?.data?.detail || "Erro ao iniciar conexão com Google.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const syncGoogleCalendar = async () => {
+    if (!escalaData) return;
+    if (!googleStatus?.authenticated) {
+      setShowSettings(true);
+      setError("Conecte a conta Google antes de sincronizar.");
+      return;
+    }
+
+    setGoogleSyncing(true);
+    setError(null);
+    try {
+      localStorage.setItem('escala_google_calendar', selectedGoogleCalendar || 'primary');
+      const res = await axios.post(`${API_BASE}/google/sync`, {
+        calendar_id: selectedGoogleCalendar || 'primary',
+        escala: escalaData,
+      });
+      const { created, updated, deleted, skipped } = res.data;
+      setGoogleMessage(`Google sincronizado: ${created} criados, ${updated} atualizados, ${deleted} removidos, ${skipped} ignorados.`);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || "Erro ao sincronizar com Google Calendar.");
+    } finally {
+      setGoogleSyncing(false);
+    }
+  };
 
   // Carregar turnos disponíveis ao iniciar
   useEffect(() => {
@@ -74,14 +204,16 @@ function App() {
 
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('col_nome', nameColumn.toString());
 
     setLoading(true);
     setError(null);
     try {
-      const res = await axios.post(`${API_BASE}/upload`, formData);
+      const res = await axios.post(`${API_BASE}/upload?col_nome=${nameColumn}`, formData);
+      const uploadedMonths = res.data.months || [];
       setFileId(res.data.file_id);
-      setMonths(res.data.months);
-      setSelectedMonth(null);
+      setMonths(uploadedMonths);
+      setSelectedMonth(uploadedMonths[0]?.id || null);
       setEmployees([]);
       setSelectedEmployeeId(null);
       setEscalaData(null);
@@ -97,6 +229,52 @@ function App() {
     if (file) processFile(file);
   };
 
+  const requestFileUpload = () => {
+    const nativeBridge = (window as any).webkit?.messageHandlers?.escala;
+    if (nativeBridge) {
+      nativeBridge.postMessage(JSON.stringify({ type: 'open-file' }));
+      return;
+    }
+
+    document.getElementById('fileInput')?.click();
+  };
+
+  useEffect(() => {
+    const handleNativeUpload = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (!detail) return;
+
+      if (detail.error) {
+        setError(detail.error);
+        setLoading(false);
+        return;
+      }
+
+      const uploadedMonths = detail.months || [];
+      setFileId(detail.file_id);
+      setMonths(uploadedMonths);
+      setSelectedMonth(uploadedMonths[0]?.id || null);
+      setEmployees([]);
+      setSelectedEmployeeId(null);
+      setEscalaData(null);
+      setError(null);
+      setLoading(false);
+    };
+
+    const handleNativeUploadStart = () => {
+      setLoading(true);
+      setError(null);
+    };
+
+    window.addEventListener('escala:native-upload-start', handleNativeUploadStart);
+    window.addEventListener('escala:native-upload-result', handleNativeUpload);
+
+    return () => {
+      window.removeEventListener('escala:native-upload-start', handleNativeUploadStart);
+      window.removeEventListener('escala:native-upload-result', handleNativeUpload);
+    };
+  }, []);
+
   const generateCalendarLink = async () => {
     if (!escalaData) return;
     setSaving(true);
@@ -104,8 +282,14 @@ function App() {
       const res = await axios.post(`${API_BASE.replace('/api', '')}/api/escala/save-link`, escalaData);
       let fullUrl = res.data.url;
       
-      // Converter para webcal:// se for http:// (ajuda o Google)
-      const webcalUrl = fullUrl.replace('http://', 'webcal://');
+      // Se tiver configurações do GitHub, gera o link do GitHub Pages
+      if (githubUser && githubRepo) {
+        const safeName = "".concat(...Array.from(escalaData.name.toLowerCase()).map(c => /[a-z0-9]/.test(c) ? c : "_")).replace(/^_+|_+$/g, '');
+        fullUrl = `https://${githubUser}.github.io/${githubRepo}/${safeName}.ics`;
+      }
+      
+      // Converter para webcal:// (ajuda o Google)
+      const webcalUrl = fullUrl.replace('http://', 'webcal://').replace('https://', 'webcal://');
       setCalendarUrl(webcalUrl);
       copyToClipboard(webcalUrl);
     } catch {
@@ -140,8 +324,9 @@ function App() {
       setLoading(true);
       axios.get(`${API_BASE}/employees/${fileId}/${selectedMonth}`)
         .then(res => {
-          setEmployees(res.data);
-          setSelectedEmployeeId(null);
+          const loadedEmployees = res.data || [];
+          setEmployees(loadedEmployees);
+          setSelectedEmployeeId(loadedEmployees[0]?.id ?? null);
           setEscalaData(null);
         })
         .catch(() => setError("Erro ao carregar funcionários"))
@@ -215,6 +400,8 @@ function App() {
     }
   };
 
+  const [showSettings, setShowSettings] = useState(false);
+
   return (
     <div className={`app-container ${isDragging ? 'dragging' : ''}`} 
          onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }} 
@@ -227,7 +414,10 @@ function App() {
           <h1>Escala Web Editor</h1>
         </div>
         <div className="header-actions">
-          <button className="btn btn-secondary" onClick={() => document.getElementById('fileInput')?.click()}>
+          <button className="btn btn-secondary" onClick={() => setShowSettings(!showSettings)}>
+            <Settings2 size={18} /> Configurações
+          </button>
+          <button className="btn btn-secondary" onClick={requestFileUpload}>
             <Upload size={18} /> {fileId ? 'Trocar Planilha' : 'Carregar Excel'}
           </button>
           <input id="fileInput" type="file" onChange={handleFileUpload} accept=".xlsx, .xls" style={{ display: 'none' }} />
@@ -235,6 +425,20 @@ function App() {
             <>
               <button onClick={generateCalendarLink} className="btn btn-secondary">
                 <Link size={18} /> {calendarUrl ? 'Link Criado' : 'Link Agenda'}
+              </button>
+              {googleStatus?.authenticated && (
+                <label className="calendar-target">
+                  <Calendar size={16} />
+                  <select value={selectedGoogleCalendar} onChange={(e) => setSelectedGoogleCalendar(e.target.value)}>
+                    {googleCalendars.length === 0 && <option value="primary">Principal</option>}
+                    {googleCalendars.map(cal => (
+                      <option key={cal.id} value={cal.id}>{cal.summary}{cal.primary ? ' (principal)' : ''}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <button onClick={syncGoogleCalendar} className="btn btn-secondary" disabled={googleSyncing}>
+                <Calendar size={18} /> {googleSyncing ? 'Sincronizando...' : 'Sync Google'}
               </button>
               <button onClick={downloadCsv} className="btn btn-primary" disabled={saving}>
                 <Download size={18} /> {saving ? 'Gerando...' : 'Baixar CSV'}
@@ -263,6 +467,73 @@ function App() {
              <Download size={14} /> Baixar Arquivo
           </button>
           <button className="close-btn" onClick={() => setCalendarUrl(null)}><X size={18} /></button>
+        </div>
+      )}
+
+      {googleMessage && (
+        <div className="success-banner">
+          <Check size={20} />
+          <span>{googleMessage}</span>
+          <button className="close-btn" onClick={() => setGoogleMessage(null)}><X size={18} /></button>
+        </div>
+      )}
+
+      {showSettings && (
+        <div className="settings-panel">
+          <div className="settings-header">
+            <h3><Settings2 size={18} /> Configurações de Importação e Sync</h3>
+            <button onClick={() => setShowSettings(false)} className="close-btn"><X size={18} /></button>
+          </div>
+          <div className="settings-grid">
+            <div className="settings-group">
+              <label>Coluna de Nomes (0=A, 1=B...):</label>
+              <input type="number" value={nameColumn} onChange={(e) => setNameColumn(parseInt(e.target.value))} />
+              <p className="hint">Índice da coluna na planilha que contém os nomes.</p>
+            </div>
+            <div className="settings-group">
+              <label>GitHub Username:</label>
+              <input type="text" placeholder="ex: rysete" value={githubUser} onChange={(e) => setGithubUser(e.target.value)} />
+            </div>
+            <div className="settings-group">
+              <label>GitHub Repository:</label>
+              <input type="text" placeholder="ex: calendariano" value={githubRepo} onChange={(e) => setGithubRepo(e.target.value)} />
+            </div>
+            <div className="settings-group">
+              <label>Google OAuth Client JSON:</label>
+              <input type="file" accept=".json,application/json" onChange={uploadGoogleCredentials} />
+              <p className="hint">Use um OAuth Client do tipo Web Application e cadastre o redirect URI abaixo no Google Cloud.</p>
+            </div>
+            <div className="settings-group">
+              <label>Google Redirect URI:</label>
+              <input type="text" readOnly value={googleStatus?.redirect_uri || 'Clique em Atualizar status para carregar do servidor'} />
+              <p className="hint">Esta URL vem do backend. Copie exatamente para Authorized redirect URIs no OAuth Client.</p>
+            </div>
+            <div className="settings-group">
+              <label>Status Google:</label>
+              <div className={`google-status ${googleStatus?.authenticated ? 'ok' : 'warn'}`}>
+                {googleStatus?.authenticated ? 'Conta conectada' : googleStatus?.configured ? 'Credenciais salvas, conta não conectada' : 'Credenciais ausentes'}
+              </div>
+              {googleStatus?.error && <p className="hint error-text">{googleStatus.error}</p>}
+            </div>
+            <div className="settings-group">
+              <label>Calendário Google:</label>
+              <select value={selectedGoogleCalendar} onChange={(e) => setSelectedGoogleCalendar(e.target.value)}>
+                {googleCalendars.length === 0 && <option value="primary">Principal</option>}
+                {googleCalendars.map(cal => (
+                  <option key={cal.id} value={cal.id}>{cal.summary}{cal.primary ? ' (principal)' : ''}</option>
+                ))}
+              </select>
+              <p className="hint">O sync atualiza eventos existentes da escala e remove dias que viraram folga.</p>
+            </div>
+          </div>
+          <div className="settings-footer">
+            <p className="sync-info">Para sync direto, use OAuth Web Application. Links webcal continuam disponíveis como alternativa.</p>
+            <div className="settings-actions">
+              <button className="btn btn-secondary" onClick={loadGoogleStatus}>Atualizar status</button>
+              <button className="btn btn-secondary" onClick={connectGoogle} disabled={!googleStatus?.configured || saving}>Conectar Google</button>
+              <button className="btn btn-primary" onClick={() => { saveSettings(); setShowSettings(false); }}>Salvar Configurações</button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -326,6 +597,12 @@ function App() {
                         <div className="time-inputs">
                           <div className="time-field"><Clock size={12} /><input type="text" value={item.start_time} onChange={(e) => handleTimeChange(idx, 'start_time', e.target.value)} /></div>
                           <div className="time-field"><Clock size={12} /><input type="text" value={item.end_time} onChange={(e) => handleTimeChange(idx, 'end_time', e.target.value)} /></div>
+                        </div>
+                      )}
+                      {item.status === 'TRABALHO' && item.colegas && item.colegas.length > 0 && (
+                        <div className="day-team">
+                          <span className="team-label">Com o time:</span>
+                          <span className="team-names">{item.colegas.join(', ')}</span>
                         </div>
                       )}
                     </div>

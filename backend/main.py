@@ -78,6 +78,7 @@ class EscalaItem(BaseModel):
     status: str
     start_time: str
     end_time: str
+    colegas: Optional[List[str]] = []
 
 class EscalaUpdate(BaseModel):
     name: str
