@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from datetime import datetime
 import json
 import os
 import threading
@@ -9,6 +10,7 @@ from typing import Any
 
 from backend.bridge import EscalaBridge
 from backend import google_calendar
+from backend import git_publish
 
 
 @dataclass
@@ -21,10 +23,12 @@ class NativeState:
     turnos: dict[str, dict[str, str]] = field(default_factory=dict)
     selected_month_id: str | None = None
     selected_employee_id: int | None = None
+    selected_employee_name: str | None = None
     escala: dict[str, Any] | None = None
     google_status: dict[str, Any] = field(default_factory=dict)
     google_calendars: list[dict[str, Any]] = field(default_factory=list)
     selected_google_calendar_id: str = "primary"
+    git_status: dict[str, Any] = field(default_factory=dict)
     status: str = "Carregue uma planilha Excel para comecar."
     error: str | None = None
     version: int = 0
@@ -40,14 +44,41 @@ class NativeState:
                 "turnos": copy.deepcopy(self.turnos),
                 "selected_month_id": self.selected_month_id,
                 "selected_employee_id": self.selected_employee_id,
+                "selected_employee_name": self.selected_employee_name,
                 "escala": copy.deepcopy(self.escala),
                 "google_status": copy.deepcopy(self.google_status),
                 "google_calendars": copy.deepcopy(self.google_calendars),
                 "selected_google_calendar_id": self.selected_google_calendar_id,
+                "git_status": copy.deepcopy(self.git_status),
                 "status": self.status,
                 "error": self.error,
                 "version": self.version,
             }
+
+    @staticmethod
+    def _pick_default_month_id(months: list[dict[str, Any]]) -> str | None:
+        if not months:
+            return None
+        now = datetime.now()
+        for m in months:
+            if m.get("year") == now.year and m.get("month") == now.month:
+                return m["id"]
+        return months[0]["id"]
+
+    def _pick_employee_id(self, employees: list[dict[str, Any]]) -> int | None:
+        if not employees:
+            return None
+        preferred_name = (self.selected_employee_name or "").strip().lower()
+        if preferred_name:
+            exact = next((e["id"] for e in employees if e["name"].strip().lower() == preferred_name), None)
+            if exact is not None:
+                return int(exact)
+        cfg_default = (git_publish.load_settings().get("default_employee") or "RYAN").strip().lower()
+        if cfg_default:
+            sub = next((e["id"] for e in employees if cfg_default in e["name"].strip().lower()), None)
+            if sub is not None:
+                return int(sub)
+        return int(employees[0]["id"])
 
     def load_file(self, path: str, col_nome: int | None = None) -> dict[str, Any]:
         path = os.path.abspath(os.path.expanduser(path))
@@ -59,6 +90,7 @@ class NativeState:
         column = self.name_column if col_nome is None else int(col_nome)
         bridge = EscalaBridge(path, col_nome=column)
         months = bridge.get_months()
+        default_month = self._pick_default_month_id(months)
 
         with self._lock:
             self.name_column = column
@@ -66,7 +98,7 @@ class NativeState:
             self.bridge = bridge
             self.months = months
             self.turnos = bridge.get_turnos()
-            self.selected_month_id = months[0]["id"] if months else None
+            self.selected_month_id = default_month
             self.selected_employee_id = None
             self.employees = []
             self.escala = None
@@ -74,8 +106,8 @@ class NativeState:
             self.status = f"Planilha carregada: {os.path.basename(path)}"
             self.version += 1
 
-        if months:
-            self.select_month(months[0]["id"])
+        if default_month:
+            self.select_month(default_month)
 
         return {"months": months, "status": self.status, "version": self.version}
 
@@ -91,16 +123,17 @@ class NativeState:
             return
 
         employees = bridge.get_employees(month_id)
+        target_emp_id = self._pick_employee_id(employees)
         with self._lock:
             self.selected_month_id = month_id
             self.employees = employees
-            self.selected_employee_id = employees[0]["id"] if employees else None
+            self.selected_employee_id = target_emp_id
             self.escala = None
             self.error = None
             self.version += 1
 
-        if employees:
-            self.select_employee(int(employees[0]["id"]))
+        if target_emp_id is not None:
+            self.select_employee(int(target_emp_id))
 
     def select_employee(self, employee_id: int) -> None:
         with self._lock:
@@ -112,9 +145,12 @@ class NativeState:
         escala = bridge.get_escala(month_id, int(employee_id))
         with self._lock:
             self.selected_employee_id = int(employee_id)
+            if escala and escala.get("name"):
+                self.selected_employee_name = escala["name"]
             self.escala = escala
             self.error = None
             self.version += 1
+        self.refresh_git()
 
     def update_day(self, index: int, **changes: Any) -> None:
         with self._lock:
@@ -179,6 +215,41 @@ class NativeState:
             self.error = message
             self.status = message
             self.version += 1
+
+    def refresh_git(self) -> dict[str, Any]:
+        with self._lock:
+            emp_name = (self.escala or {}).get("name") or self.selected_employee_name
+        info = git_publish.repo_status(employee_name=emp_name)
+        with self._lock:
+            self.git_status = info
+            self.version += 1
+        return info
+
+    def save_git_settings(
+        self,
+        repo_dir: str | None = None,
+        pages_base: str | None = None,
+        default_employee: str | None = None,
+    ) -> dict[str, Any]:
+        git_publish.save_settings(
+            repo_dir=repo_dir.strip() if repo_dir is not None else None,
+            pages_base=pages_base.strip() if pages_base is not None else None,
+            default_employee=default_employee.strip() if default_employee is not None else None,
+        )
+        return self.refresh_git()
+
+    def publish_git(self, push: bool = True) -> dict[str, Any]:
+        with self._lock:
+            data = copy.deepcopy(self.escala)
+        if not data:
+            raise ValueError("Nenhuma escala selecionada.")
+        result = git_publish.publish_escala(data, push=push)
+        self.refresh_git()
+        with self._lock:
+            self.status = result.get("message", "Escala publicada.")
+            self.error = None
+            self.version += 1
+        return result
 
     def refresh_google(self) -> dict[str, Any]:
         status = google_calendar.native_status()

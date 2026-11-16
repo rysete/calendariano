@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import threading
+import time
 import traceback
 from typing import Any
 
@@ -161,6 +162,15 @@ def safe_filename(value: str, fallback: str) -> str:
     return name or fallback
 
 
+def copy_text_to_clipboard(text: str) -> bool:
+    display = Gdk.Display.get_default()
+    if display is None:
+        return False
+    clipboard = display.get_clipboard()
+    clipboard.set(text)
+    return True
+
+
 class FileChooserWidget(Gtk.Box):
     def __init__(self, title: str, filter_name: str, patterns: list[str]) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -224,6 +234,7 @@ class EscalaView(Gtk.Box):
         self._last_version = -1
         self._loading = False
         self._google_busy = False
+        self._git_busy = False
         self._calendar_ids: list[str] = []
         self._last_month_ids: list[str] = []
         self._carousel_pages: dict[str, Gtk.Widget] = {}
@@ -275,14 +286,16 @@ class EscalaView(Gtk.Box):
         self.ics_button.connect("clicked", lambda _button: self.save_export("ics"))
         toolbar.append(self.ics_button)
 
-        self.calendar_combo = Gtk.ComboBoxText()
-        self.calendar_combo.set_tooltip_text("Agenda Google destino")
-        self.calendar_combo.connect("changed", self.on_google_calendar_changed)
-        toolbar.append(self.calendar_combo)
+        self.git_publish_button = Gtk.Button(label="Publicar ICS (Git)")
+        self.git_publish_button.add_css_class("suggested-action")
+        self.git_publish_button.set_tooltip_text("Gera JSON + ICS e publica no GitHub Pages via git push")
+        self.git_publish_button.connect("clicked", lambda _b: self.on_git_publish_clicked(push=True))
+        toolbar.append(self.git_publish_button)
 
-        self.google_sync_button = Gtk.Button(label="Sync Google")
-        self.google_sync_button.connect("clicked", self.on_google_sync_clicked)
-        toolbar.append(self.google_sync_button)
+        self.copy_ics_button = Gtk.Button(label="Copiar Link ICS")
+        self.copy_ics_button.set_tooltip_text("Copia a URL do calendario.ics do GitHub Pages")
+        self.copy_ics_button.connect("clicked", lambda _b: self.on_copy_ics_link_clicked(bust_cache=False))
+        toolbar.append(self.copy_ics_button)
 
         self.settings_button = Gtk.Button(label="Configuracoes")
         self.settings_button.connect("clicked", self.on_settings_clicked)
@@ -300,7 +313,7 @@ class EscalaView(Gtk.Box):
 
         sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         sidebar.add_css_class("sidebar")
-        sidebar.set_size_request(320, -1)
+        sidebar.set_size_request(330, -1)
         workspace.set_start_child(sidebar)
 
         self.chooser = FileChooserWidget("Planilha Excel:", "Planilhas Excel", ["*.xlsx", "*.xls"])
@@ -310,25 +323,41 @@ class EscalaView(Gtk.Box):
         self.status_label.add_css_class("muted")
         sidebar.append(self.status_label)
 
-        self.google_status_label = Gtk.Label(xalign=0, wrap=True)
-        self.google_status_label.add_css_class("muted")
-        sidebar.append(self.section("Google Agenda", self.google_status_label))
+        # Seção Agenda ICS & Git (GitHub Pages)
+        git_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.git_status_label = Gtk.Label(xalign=0, wrap=True)
+        self.git_status_label.add_css_class("muted")
+        git_box.append(self.git_status_label)
 
-        google_controls = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        self.google_calendar_sidebar = Gtk.ComboBoxText()
-        self.google_calendar_sidebar.connect("changed", self.on_google_calendar_changed)
-        google_controls.append(self.google_calendar_sidebar)
+        self.git_url_label = Gtk.Label(xalign=0, selectable=True)
+        self.git_url_label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+        self.git_url_label.add_css_class("path-display")
+        git_box.append(self.git_url_label)
 
-        google_button_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        self.google_sync_sidebar_button = Gtk.Button(label="Sync Google")
-        self.google_sync_sidebar_button.connect("clicked", self.on_google_sync_clicked)
-        google_button_row.append(self.google_sync_sidebar_button)
+        git_row1 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self.git_publish_sidebar_button = Gtk.Button(label="Publicar no Git", hexpand=True)
+        self.git_publish_sidebar_button.add_css_class("suggested-action")
+        self.git_publish_sidebar_button.connect("clicked", lambda _b: self.on_git_publish_clicked(push=True))
+        git_row1.append(self.git_publish_sidebar_button)
 
-        self.settings_button_sidebar = Gtk.Button(label="Configuracoes")
-        self.settings_button_sidebar.connect("clicked", self.on_settings_clicked)
-        google_button_row.append(self.settings_button_sidebar)
-        google_controls.append(google_button_row)
-        sidebar.append(google_controls)
+        self.git_local_sidebar_button = Gtk.Button(label="Gerar Local")
+        self.git_local_sidebar_button.set_tooltip_text("Atualiza JSON e ICS no repositório local sem fazer git push")
+        self.git_local_sidebar_button.connect("clicked", lambda _b: self.on_git_publish_clicked(push=False))
+        git_row1.append(self.git_local_sidebar_button)
+        git_box.append(git_row1)
+
+        git_row2 = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self.copy_ics_sidebar_button = Gtk.Button(label="Copiar URL ICS", hexpand=True)
+        self.copy_ics_sidebar_button.connect("clicked", lambda _b: self.on_copy_ics_link_clicked(bust_cache=False))
+        git_row2.append(self.copy_ics_sidebar_button)
+
+        self.copy_refresh_sidebar_button = Gtk.Button(label="URL ?v= (Refresh)")
+        self.copy_refresh_sidebar_button.set_tooltip_text("Copia URL com ?v=<timestamp> para forçar refresh no Google Agenda")
+        self.copy_refresh_sidebar_button.connect("clicked", lambda _b: self.on_copy_ics_link_clicked(bust_cache=True))
+        git_row2.append(self.copy_refresh_sidebar_button)
+        git_box.append(git_row2)
+
+        sidebar.append(self.section("Agenda ICS & Git (Pages)", git_box))
 
         self.employee_list = Gtk.ListBox()
         self.employee_list.set_selection_mode(Gtk.SelectionMode.NONE)
@@ -340,17 +369,17 @@ class EscalaView(Gtk.Box):
 
         self.editor_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self.editor_box.add_css_class("editor-panel")
-        
+
         right_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         workspace.set_end_child(right_panel)
 
         carousel_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         carousel_container.add_css_class("month-carousel-container")
-        
+
         carousel_title = Gtk.Label(label="Mês de Referência")
         carousel_title.add_css_class("section-title")
         carousel_container.append(carousel_title)
-        
+
         self.month_carousel = Adw.Carousel()
         self.month_carousel.set_spacing(12)
         self.month_carousel.set_hexpand(True)
@@ -373,8 +402,19 @@ class EscalaView(Gtk.Box):
 
         self.add_drop_targets()
         self.refresh(force=True)
-        threading.Thread(target=self.refresh_google_thread, daemon=True).start()
+        threading.Thread(target=self.initial_background_refresh, daemon=True).start()
         GLib.timeout_add(500, self.refresh)
+
+    def initial_background_refresh(self) -> None:
+        try:
+            state.refresh_git()
+        except Exception as exc:
+            print(f"Aviso ao carregar status git: {exc}")
+        try:
+            state.refresh_google()
+        except Exception as exc:
+            print(f"Aviso ao carregar status google: {exc}")
+        GLib.idle_add(self.refresh, True)
 
     def section(self, title: str, child: Gtk.Widget) -> Gtk.Box:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -488,66 +528,80 @@ class EscalaView(Gtk.Box):
             self.status_label.add_css_class("error")
 
         has_escala = bool(snapshot["escala"])
-        self.csv_button.set_sensitive(has_escala)
-        self.ics_button.set_sensitive(has_escala)
-        google_authenticated = bool(snapshot.get("google_status", {}).get("authenticated"))
-        self.google_sync_button.set_sensitive(has_escala and google_authenticated and not self._google_busy)
-        self.google_sync_sidebar_button.set_sensitive(has_escala and google_authenticated and not self._google_busy)
-        self.calendar_combo.set_sensitive(google_authenticated and not self._google_busy)
-        self.google_calendar_sidebar.set_sensitive(google_authenticated and not self._google_busy)
-        self.settings_button.set_sensitive(not self._google_busy)
-        self.settings_button_sidebar.set_sensitive(not self._google_busy)
-        self.load_button.set_sensitive(not self._loading)
-        if self._loading:
+        busy = self._loading or self._google_busy or self._git_busy
+        self.csv_button.set_sensitive(has_escala and not busy)
+        self.ics_button.set_sensitive(has_escala and not busy)
+        self.git_publish_button.set_sensitive(has_escala and not busy)
+        self.git_publish_sidebar_button.set_sensitive(has_escala and not busy)
+        self.git_local_sidebar_button.set_sensitive(has_escala and not busy)
+        self.settings_button.set_sensitive(not busy)
+        self.load_button.set_sensitive(not busy)
+
+        if busy:
             self.spinner.start()
         else:
             self.spinner.stop()
 
+        self.render_git_status(snapshot)
         self.render_months(snapshot)
         self.render_employees(snapshot)
-        self.render_google_calendars(snapshot)
         self.render_editor(snapshot)
         return True
 
-    def render_google_calendars(self, snapshot: dict[str, Any]) -> None:
-        calendars = snapshot.get("google_calendars") or []
-        selected = snapshot.get("selected_google_calendar_id") or "primary"
-        ids = [item["id"] for item in calendars] or ["primary"]
-        if ids == self._calendar_ids:
-            active_index = ids.index(selected) if selected in ids else 0
-            if self.calendar_combo.get_active() != active_index:
-                self.calendar_combo.set_active(active_index)
-            if self.google_calendar_sidebar.get_active() != active_index:
-                self.google_calendar_sidebar.set_active(active_index)
-            return
+    def render_git_status(self, snapshot: dict[str, Any]) -> None:
+        git_info = snapshot.get("git_status") or {}
+        main_url = git_info.get("main_ics_url") or "https://rysete.github.io/calendariano/calendario.ics"
+        self.git_url_label.set_label(main_url)
 
-        self._calendar_ids = ids
-        self.calendar_combo.remove_all()
-        self.google_calendar_sidebar.remove_all()
-        if calendars:
-            for item in calendars:
-                label = item.get("summary", item["id"])
-                if item.get("primary"):
-                    label = f"{label} (principal)"
-                self.calendar_combo.append_text(label)
-                self.google_calendar_sidebar.append_text(label)
+        if git_info.get("valid"):
+            branch = git_info.get("branch") or "master"
+            commit = git_info.get("last_commit") or "sem commits"
+            self.git_status_label.set_label(f"Repo ({branch}): {commit}")
+        elif git_info.get("error"):
+            self.git_status_label.set_label(git_info["error"])
         else:
-            self.calendar_combo.append_text("Principal")
-            self.google_calendar_sidebar.append_text("Principal")
-        self.calendar_combo.set_active(ids.index(selected) if selected in ids else 0)
-        self.google_calendar_sidebar.set_active(ids.index(selected) if selected in ids else 0)
-        status = snapshot.get("google_status") or {}
-        if status.get("authenticated"):
-            self.google_status_label.set_label(f'Conta conectada. {len(calendars)} agendas gravaveis.')
-        elif status.get("configured"):
-            self.google_status_label.set_label("Credenciais salvas, conta nao conectada.")
+            self.git_status_label.set_label("Pronto para publicar calendario.ics no GitHub Pages.")
+
+    def on_copy_ics_link_clicked(self, bust_cache: bool = False) -> None:
+        snapshot = state.snapshot()
+        git_info = snapshot.get("git_status") or {}
+        url = git_info.get("main_ics_url") or "https://rysete.github.io/calendariano/calendario.ics"
+        if bust_cache:
+            url = f"{url}?v={int(time.time())}"
+        if copy_text_to_clipboard(url):
+            state.set_status(f"Link copiado: {url}")
         else:
-            self.google_status_label.set_label("Sem credenciais Google.")
+            state.set_status(f"URL ICS: {url}")
+        self.refresh(force=True)
+
+    def on_git_publish_clicked(self, push: bool = True) -> None:
+        if self._git_busy:
+            return
+        self._git_busy = True
+        if push:
+            state.set_status("Gerando ICS e publicando no GitHub Pages (git commit & push)...")
+        else:
+            state.set_status("Gerando JSON e ICS no repositório local...")
+        self.refresh(force=True)
+        threading.Thread(target=self.git_publish_thread, args=(push,), daemon=True).start()
+
+    def git_publish_thread(self, push: bool) -> None:
+        try:
+            res = state.publish_git(push=push)
+            url = res.get("main_ics_url")
+            if url:
+                GLib.idle_add(copy_text_to_clipboard, url)
+        except Exception as exc:
+            traceback.print_exc()
+            state.set_error(f"Erro ao publicar ICS/Git: {exc}")
+        finally:
+            self._git_busy = False
+            GLib.idle_add(self.refresh, True)
 
     def on_month_carousel_page_changed(self, carousel: Adw.Carousel, index: int) -> None:
         if self._blocking_carousel_signal:
             return
-        
+
         page = carousel.get_nth_page(index)
         for month_id, p in self._carousel_pages.items():
             if p == page:
@@ -560,22 +614,22 @@ class EscalaView(Gtk.Box):
         button.add_css_class("month-page")
         button.set_halign(Gtk.Align.CENTER)
         button.set_valign(Gtk.Align.CENTER)
-        
+
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         box.add_css_class("month-page-content")
-        
+
         name = Gtk.Label(label=month["name"])
         name.add_css_class("section-title")
-        
+
         month_number = month.get("month", "")
         month_label = f"{int(month_number):02d}" if str(month_number).isdigit() else str(month_number)
         meta = Gtk.Label(label=f'{month_label}/{month.get("year", "")}')
         meta.add_css_class("muted")
-        
+
         box.append(name)
         box.append(meta)
         button.set_child(box)
-        
+
         button.connect("clicked", lambda _btn, mid=month["id"]: self.on_month_clicked(mid))
         return button
 
@@ -592,20 +646,18 @@ class EscalaView(Gtk.Box):
         month_ids = [m["id"] for m in months]
         if month_ids != self._last_month_ids:
             self._last_month_ids = month_ids
-            # Limpa carrossel
             while True:
                 child = self.month_carousel.get_nth_page(0)
                 if child is None:
                     break
                 self.month_carousel.remove(child)
-            
+
             self._carousel_pages = {}
             for month in months:
                 page = self.build_month_page(month)
                 self.month_carousel.append(page)
                 self._carousel_pages[month["id"]] = page
-        
-        # Sincroniza selecao
+
         selected_id = snapshot["selected_month_id"]
         for mid, page in self._carousel_pages.items():
             if mid == selected_id:
@@ -617,10 +669,9 @@ class EscalaView(Gtk.Box):
             target_page = self._carousel_pages[selected_id]
             current_pos = round(self.month_carousel.get_position())
             current_page = self.month_carousel.get_nth_page(current_pos)
-            
+
             if target_page != current_page:
                 self._blocking_carousel_signal = True
-                # Usar False para evitar "fighting" com o timer de refresh
                 self.month_carousel.scroll_to(target_page, False)
                 self._blocking_carousel_signal = False
 
@@ -639,23 +690,22 @@ class EscalaView(Gtk.Box):
             content.add_css_class("employee-row")
             if str(employee["id"]) == str(snapshot["selected_employee_id"]):
                 content.add_css_class("selected")
-            
+
             name = Gtk.Label(label=employee["name"], xalign=0, hexpand=True)
             name.add_css_class("employee-name")
             name.set_wrap(True)
-            
+
             count = Gtk.Label(label=f'{employee.get("num_trabalho", 0)} dias')
             count.add_css_class("pill")
-            
+
             content.append(name)
             content.append(count)
             row.set_child(content)
-            
-            # Usar GestureClick para garantir a captura do clique
+
             click = Gtk.GestureClick()
             click.connect("pressed", lambda _g, _n, _x, _y, eid=employee["id"]: self.select_employee(int(eid)))
             row.add_controller(click)
-            
+
             self.employee_list.append(row)
 
     def render_editor(self, snapshot: dict[str, Any]) -> None:
@@ -783,12 +833,6 @@ class EscalaView(Gtk.Box):
         state.set_turno(turno)
         self.refresh(force=True)
 
-    def on_google_calendar_changed(self, combo: Gtk.ComboBoxText) -> None:
-        active = combo.get_active()
-        if active < 0 or active >= len(self._calendar_ids):
-            return
-        state.select_google_calendar(self._calendar_ids[active])
-
     def on_google_sync_clicked(self, _button: Gtk.Button) -> None:
         if self._google_busy:
             return
@@ -807,27 +851,91 @@ class EscalaView(Gtk.Box):
             self._google_busy = False
             GLib.idle_add(self.refresh, True)
 
-    def refresh_google_thread(self) -> None:
-        try:
-            state.refresh_google()
-        except Exception as exc:
-            state.set_error(f"Erro ao carregar Google: {exc}")
-        GLib.idle_add(self.refresh, True)
-
     def on_settings_clicked(self, _button: Gtk.Button) -> None:
+        state.refresh_git()
         state.refresh_google()
+        snapshot = state.snapshot()
+        git_info = snapshot.get("git_status") or {}
+
         dialog = Adw.PreferencesDialog()
         dialog.set_title("Configuracoes")
 
+        # Página 1: Agenda ICS & Git (GitHub Pages)
+        git_page = Adw.PreferencesPage()
+        git_page.set_title("Agenda ICS & Git")
+        git_page.set_icon_name("x-office-calendar-symbolic")
+        dialog.add(git_page)
+
+        git_group = Adw.PreferencesGroup()
+        git_group.set_title("Publicacao via GitHub Pages (ICS)")
+        git_group.set_description("Gera backend/calendars/<nome>.json e docs/*.ics e faz commit/push no repositorio.")
+        git_page.add(git_group)
+
+        git_status_row = Adw.ActionRow()
+        git_status_row.set_title("Status do Repositorio")
+        if git_info.get("valid"):
+            git_status_row.set_subtitle(f"Branch {git_info.get('branch')} — {git_info.get('last_commit')}")
+        else:
+            git_status_row.set_subtitle(git_info.get("error") or "Repositorio nao encontrado")
+        git_group.add(git_status_row)
+
+        repo_row = Adw.EntryRow()
+        repo_row.set_title("Caminho do Repositorio Local")
+        repo_row.set_text(git_info.get("repo_dir") or os.path.expanduser("~/gemini/escala-web-editor"))
+        git_group.add(repo_row)
+
+        pages_row = Adw.EntryRow()
+        pages_row.set_title("URL Base do GitHub Pages")
+        pages_row.set_text(git_info.get("pages_base") or "https://rysete.github.io/calendariano")
+        git_group.add(pages_row)
+
+        emp_row = Adw.EntryRow()
+        emp_row.set_title("Funcionario Padrao")
+        emp_row.set_text(git_info.get("default_employee") or "RYAN")
+        git_group.add(emp_row)
+
+        save_git_row = Adw.ActionRow()
+        save_git_row.set_title("Salvar Configuracoes Git/ICS")
+        save_git_btn = Gtk.Button(label="Salvar")
+        save_git_btn.add_css_class("suggested-action")
+        save_git_btn.connect(
+            "clicked",
+            lambda _b: self.on_save_git_settings(repo_row.get_text(), pages_row.get_text(), emp_row.get_text()),
+        )
+        save_git_row.add_suffix(save_git_btn)
+        git_group.add(save_git_row)
+
+        links_group = Adw.PreferencesGroup()
+        links_group.set_title("Links de Inscricao (Google Agenda)")
+        git_page.add(links_group)
+
+        main_link_row = Adw.ActionRow()
+        main_link_row.set_title("Agenda Principal (calendario.ics)")
+        main_link_row.set_subtitle(git_info.get("main_ics_url") or "")
+        copy_main_btn = Gtk.Button(label="Copiar")
+        copy_main_btn.connect("clicked", lambda _b: self.on_copy_ics_link_clicked(bust_cache=False))
+        main_link_row.add_suffix(copy_main_btn)
+        links_group.add(main_link_row)
+
+        emp_link_row = Adw.ActionRow()
+        emp_link_row.set_title("Agenda do Funcionario")
+        emp_url = git_info.get("employee_ics_url") or ""
+        emp_link_row.set_subtitle(emp_url)
+        copy_emp_btn = Gtk.Button(label="Copiar")
+        copy_emp_btn.connect("clicked", lambda _b, u=emp_url: copy_text_to_clipboard(u))
+        emp_link_row.add_suffix(copy_emp_btn)
+        links_group.add(emp_link_row)
+
+        # Página 2: Google Agenda (OAuth Direto)
         page = Adw.PreferencesPage()
-        page.set_title("Google Agenda")
+        page.set_title("Google OAuth")
+        page.set_icon_name("network-server-symbolic")
         dialog.add(page)
 
         group = Adw.PreferencesGroup()
-        group.set_title("Conexao")
+        group.set_title("Conexao OAuth Direta (Opcional)")
         page.add(group)
 
-        snapshot = state.snapshot()
         google_status = snapshot.get("google_status") or {}
         status_text = "Conta conectada" if google_status.get("authenticated") else "Conta nao conectada"
         if not google_status.get("configured"):
@@ -855,14 +963,23 @@ class EscalaView(Gtk.Box):
         group.add(connect_row)
 
         refresh_row = Adw.ActionRow()
-        refresh_row.set_title("Agendas")
+        refresh_row.set_title("Sincronizar via API OAuth")
         refresh_row.set_subtitle(f'{len(snapshot.get("google_calendars") or [])} agendas gravaveis encontradas')
-        refresh_button = Gtk.Button(label="Atualizar")
-        refresh_button.connect("clicked", self.on_refresh_google_clicked, dialog)
-        refresh_row.add_suffix(refresh_button)
+        sync_oauth_button = Gtk.Button(label="Sync OAuth")
+        sync_oauth_button.set_sensitive(bool(snapshot["escala"]) and bool(google_status.get("authenticated")))
+        sync_oauth_button.connect("clicked", self.on_google_sync_clicked)
+        refresh_row.add_suffix(sync_oauth_button)
         group.add(refresh_row)
 
         dialog.present(self.get_root())
+
+    def on_save_git_settings(self, repo_dir: str, pages_base: str, default_emp: str) -> None:
+        try:
+            state.save_git_settings(repo_dir=repo_dir, pages_base=pages_base, default_employee=default_emp)
+            state.set_status("Configuracoes de Git/ICS salvas.")
+        except Exception as exc:
+            state.set_error(f"Erro ao salvar configuracoes Git: {exc}")
+        self.refresh(force=True)
 
     def on_import_google_credentials_clicked(self, _button: Gtk.Button, dialog: Adw.PreferencesDialog) -> None:
         file_dialog = Gtk.FileDialog.new()
@@ -911,14 +1028,6 @@ class EscalaView(Gtk.Box):
             self._google_busy = False
             GLib.idle_add(self.refresh, True)
 
-    def on_refresh_google_clicked(self, _button: Gtk.Button, _dialog: Adw.PreferencesDialog) -> None:
-        try:
-            state.refresh_google()
-            state.set_status("Status Google atualizado.")
-        except Exception as exc:
-            state.set_error(f"Erro ao atualizar Google: {exc}")
-        self.refresh(force=True)
-
     def save_export(self, kind: str) -> None:
         snapshot = state.snapshot()
         escala = snapshot.get("escala") or {}
@@ -957,7 +1066,7 @@ class EscalaView(Gtk.Box):
 class MainWindow(Adw.ApplicationWindow):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        self.set_default_size(1100, 760)
+        self.set_default_size(1140, 760)
         self.set_title("Escala Local")
 
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)

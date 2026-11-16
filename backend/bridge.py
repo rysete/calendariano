@@ -208,16 +208,15 @@ class EscalaBridge:
 
     def generate_ics_content(self, data):
         """
-        Gera o conteúdo de um arquivo .ics (iCalendar) ultra-compatível com Google Agenda
+        Gera o conteúdo de um arquivo .ics (iCalendar) ultra-compatível com Google Agenda,
+        com timestamps e sequence determinísticos.
         """
-        from icalendar import Calendar, Event, vDatetime
-        import uuid
+        from icalendar import Calendar, Event
         from datetime import datetime, timezone, timedelta
         import pytz
-        
-        # Fuso horário local
+
         local_tz = pytz.timezone('America/Sao_Paulo')
-        
+
         cal = Calendar()
         cal.add('prodid', '-//Escala Web Editor//ryse.io//PT')
         cal.add('version', '2.0')
@@ -228,64 +227,74 @@ class EscalaBridge:
 
         name = data.get("name", "Funcionario")
         turno = data.get("turno", "N/A")
-        
-        now_utc = datetime.now(timezone.utc)
-        
-        for item in data.get("escala", []):
-            if item.get("status") == "TRABALHO":
-                data_str = item.get("date")
-                hora_inicio = item.get("start_time", "08:00")
-                hora_fim = item.get("end_time", "17:00")
-                
-                try:
-                    # Parsear data e horas
-                    data_obj = datetime.strptime(data_str, "%Y-%m-%d").date()
-                    start_time_obj = datetime.strptime(hora_inicio, "%H:%M").time()
-                    end_time_obj = datetime.strptime(hora_fim, "%H:%M").time()
-                    
-                    # Criar datetimes localizados e converter para UTC
-                    # Google prefere datas em UTC com o sufixo 'Z'
-                    start_dt = local_tz.localize(datetime.combine(data_obj, start_time_obj)).astimezone(timezone.utc)
-                    end_dt = local_tz.localize(datetime.combine(data_obj, end_time_obj)).astimezone(timezone.utc)
-                    
-                    # Ajustar para virada de dia no turno 22x06
-                    if end_time_obj < start_time_obj:
-                        end_dt += timedelta(days=1)
-                        
-                    event = Event()
-                    event.add('summary', name)
-                    colegas = item.get("colegas") or []
-                    if colegas:
-                        descricao = (
-                            f'Escala de Trabalho\nTurno: {turno}\n'
-                            f'Com o time: {", ".join(colegas)}\n'
-                            f'Gerado em: {datetime.now().strftime("%d/%m/%Y %H:%M")}'
-                        )
-                    else:
-                        descricao = f'Escala de Trabalho\nTurno: {turno}\nGerado em: {datetime.now().strftime("%d/%m/%Y %H:%M")}'
-                    event.add('description', descricao)
-                    
-                    # Usar vDatetime para garantir o formato ISO em UTC (Z)
-                    event.add('dtstart', start_dt)
-                    event.add('dtend', end_dt)
-                    event.add('dtstamp', now_utc)
-                    
-                    # UID fixo e único para evitar duplicação ou rejeição do Google
-                    # O domínio @escala.web ajuda na validação
-                    safe_name = "".join(c for c in name if c.isalnum())
-                    uid = f"{data_str}-{safe_name}@escala.web.ryse.io"
-                    event.add('uid', uid)
-                    
-                    content_hash = zlib.crc32(f"{start_dt.isoformat()}{end_dt.isoformat()}{descricao}".encode("utf-8"))
-                    sequence_num = content_hash % 100000
 
-                    event.add('status', 'CONFIRMED')
-                    event.add('transp', 'OPAQUE')
-                    event.add('sequence', sequence_num)
-                    event.add('last-modified', now_utc)
-                    
-                    cal.add_component(event)
-                except Exception as e:
-                    print(f"Erro ao processar dia {data_str}: {e}")
-        
+        eventos = []
+        for item in data.get("escala", []):
+            if item.get("status") != "TRABALHO":
+                continue
+            data_str = item.get("date")
+            hora_inicio = item.get("start_time", "08:00")
+            hora_fim = item.get("end_time", "17:00")
+
+            try:
+                data_obj = datetime.strptime(data_str, "%Y-%m-%d").date()
+                start_time_obj = datetime.strptime(hora_inicio, "%H:%M").time()
+                end_time_obj = datetime.strptime(hora_fim, "%H:%M").time()
+
+                start_dt = local_tz.localize(datetime.combine(data_obj, start_time_obj)).astimezone(timezone.utc)
+                end_dt = local_tz.localize(datetime.combine(data_obj, end_time_obj)).astimezone(timezone.utc)
+
+                if end_time_obj < start_time_obj:
+                    end_dt += timedelta(days=1)
+
+                eventos.append((data_str, start_dt, end_dt, item.get("colegas") or []))
+            except Exception as e:
+                print(f"Erro ao processar dia {data_str}: {e}")
+
+        if not eventos:
+            return cal.to_ical()
+
+        inicio = min(e[1] for e in eventos)
+        fim = max(e[1] for e in eventos)
+        stamp = fim
+        periodo = (
+            inicio.astimezone(local_tz).strftime("%d/%m/%Y")
+            + " - "
+            + fim.astimezone(local_tz).strftime("%d/%m/%Y")
+        )
+        safe_name = "".join(c for c in name if c.isalnum())
+
+        for data_str, start_dt, end_dt, colegas in eventos:
+            if colegas:
+                linhas = [
+                    "Escala de Trabalho",
+                    f"Turno: {turno}",
+                    "Com o time: " + ", ".join(colegas),
+                    f"Periodo: {periodo}",
+                ]
+            else:
+                linhas = ["Escala de Trabalho", f"Turno: {turno}", f"Periodo: {periodo}"]
+            descricao = "\n".join(linhas)
+
+            event = Event()
+            event.add('summary', f'🏢 {name}')
+            event.add('description', descricao)
+
+            event.add('dtstart', start_dt)
+            event.add('dtend', end_dt)
+            event.add('dtstamp', stamp)
+
+            uid = f"{data_str}-{safe_name}@escala.web.ryse.io"
+            event.add('uid', uid)
+
+            content_hash = zlib.crc32(f"{start_dt.isoformat()}{end_dt.isoformat()}{descricao}".encode("utf-8"))
+            sequence_num = content_hash % 100000
+
+            event.add('status', 'CONFIRMED')
+            event.add('transp', 'OPAQUE')
+            event.add('sequence', sequence_num)
+            event.add('last-modified', stamp)
+
+            cal.add_component(event)
+
         return cal.to_ical()

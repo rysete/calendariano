@@ -10,6 +10,7 @@ finish-args:
   - --socket=fallback-x11
   - --device=dri
   - --filesystem=host
+  - --talk-name=org.freedesktop.Flatpak
 modules:
   - name: escala-web-editor
     buildsystem: simple
@@ -23,7 +24,7 @@ modules:
       - cp backend/*.py /app/share/escala-web-editor/backend/
       - cp -r backend/vendor /app/share/escala-web-editor/backend/vendor
       - cp native/*.py /app/share/escala-web-editor/native/
-      - cp requirements.txt /app/share/escala-web-editor/
+      - cp requirements.txt script_gera_ics.py /app/share/escala-web-editor/
       - install -Dm644 flatpak/org.ryse.EscalaWebEditor.desktop /app/share/applications/org.ryse.EscalaWebEditor.desktop
       - install -Dm644 flatpak/org.ryse.EscalaWebEditor.metainfo.xml /app/share/metainfo/org.ryse.EscalaWebEditor.metainfo.xml
       - install -Dm644 flatpak/org.ryse.EscalaWebEditor.svg /app/share/icons/hicolor/scalable/apps/org.ryse.EscalaWebEditor.svg
