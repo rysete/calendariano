@@ -23,6 +23,16 @@ class EscalaBridge:
         self.excel_path = excel_path
         self.col_nome = col_nome
         self.processor = EscalaProcessor(self.excel_path, col_nome=self.col_nome)
+        self._funcionarios_cache = {}
+        self._schedule_blocks_cache = {}
+
+    def _get_funcionarios_mes(self, month_id):
+        if month_id not in self.processor.meses_disponiveis:
+            return []
+        if month_id not in self._funcionarios_cache:
+            mes_info = self.processor.meses_disponiveis[month_id]
+            self._funcionarios_cache[month_id] = self.processor.ler_funcionarios_mes(mes_info)
+        return self._funcionarios_cache[month_id]
 
     def get_months(self):
         months = []
@@ -37,11 +47,9 @@ class EscalaBridge:
         return months
 
     def get_employees(self, month_id):
-        if month_id not in self.processor.meses_disponiveis:
+        funcionarios = self._get_funcionarios_mes(month_id)
+        if not funcionarios:
             return []
-        
-        mes_info = self.processor.meses_disponiveis[month_id]
-        funcionarios = self.processor.ler_funcionarios_mes(mes_info)
         
         result = []
         for i, func in enumerate(funcionarios):
@@ -70,11 +78,9 @@ class EscalaBridge:
         if month_id in self._schedule_blocks_cache:
             return self._schedule_blocks_cache[month_id]
 
-        if month_id not in self.processor.meses_disponiveis:
+        funcionarios = self._get_funcionarios_mes(month_id)
+        if not funcionarios:
             return {}
-
-        mes_info = self.processor.meses_disponiveis[month_id]
-        funcionarios = self.processor.ler_funcionarios_mes(mes_info)
 
         por_data = {}
         for other_func in funcionarios:
@@ -111,11 +117,9 @@ class EscalaBridge:
         return self.processor.turnos
 
     def get_escala(self, month_id, employee_id):
-        if month_id not in self.processor.meses_disponiveis:
+        funcionarios = self._get_funcionarios_mes(month_id)
+        if not funcionarios:
             return None
-        
-        mes_info = self.processor.meses_disponiveis[month_id]
-        funcionarios = self.processor.ler_funcionarios_mes(mes_info)
         
         if employee_id < 0 or employee_id >= len(funcionarios):
             return None

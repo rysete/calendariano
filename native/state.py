@@ -147,10 +147,15 @@ class NativeState:
             self.selected_employee_id = int(employee_id)
             if escala and escala.get("name"):
                 self.selected_employee_name = escala["name"]
+                if self.git_status:
+                    pages_base = (self.git_status.get("pages_base") or git_publish.DEFAULT_PAGES_BASE).rstrip("/")
+                    emp_slug = git_publish.safe_employee_slug(escala["name"])
+                    emp_url = f"{pages_base}/{emp_slug}.ics"
+                    self.git_status["employee_ics_url"] = emp_url
+                    self.git_status["employee_webcal_url"] = emp_url.replace("https://", "webcal://").replace("http://", "webcal://")
             self.escala = escala
             self.error = None
             self.version += 1
-        self.refresh_git()
 
     def update_day(self, index: int, **changes: Any) -> None:
         with self._lock:

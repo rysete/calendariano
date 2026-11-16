@@ -250,6 +250,10 @@ class EscalaView(Gtk.Box):
         self._calendar_ids: list[str] = []
         self._last_month_ids: list[str] = []
         self._last_synced_month_id: str | None = None
+        self._carousel_animating_target_id: str | None = None
+        self._carousel_animating_until: float = 0.0
+        self._last_employees_sig: Any = None
+        self._last_editor_sig: Any = None
         self._carousel_pages: dict[str, Gtk.Widget] = {}
         self._strip_buttons: dict[str, Gtk.Button] = {}
         self._strip_drag_start_x: float = 0.0
@@ -721,6 +725,16 @@ class EscalaView(Gtk.Box):
         page = carousel.get_nth_page(index)
         for month_id, p in self._carousel_pages.items():
             if p == page:
+                if self._carousel_animating_target_id is not None:
+                    if month_id == self._carousel_animating_target_id:
+                        self._carousel_animating_target_id = None
+                        return
+                    if time.monotonic() < self._carousel_animating_until:
+                        return
+                    self._carousel_animating_target_id = None
+
+                if month_id == state.snapshot().get("selected_month_id"):
+                    return
                 self._last_synced_month_id = month_id
                 state.select_month(month_id)
                 self.refresh(force=True)
@@ -810,6 +824,11 @@ class EscalaView(Gtk.Box):
             self._last_synced_month_id = selected_id
             target_page = self._carousel_pages[selected_id]
             self._blocking_carousel_signal = True
+            if animate:
+                self._carousel_animating_target_id = selected_id
+                self._carousel_animating_until = time.monotonic() + 0.65
+            else:
+                self._carousel_animating_target_id = None
             self.month_carousel.scroll_to(target_page, animate)
             self._blocking_carousel_signal = False
             GLib.idle_add(self.center_selected_month_pill, selected_id)
@@ -832,8 +851,14 @@ class EscalaView(Gtk.Box):
         return False
 
     def render_employees(self, snapshot: dict[str, Any]) -> None:
-        clear_children(self.employee_list)
         employees = snapshot["employees"]
+        selected_emp = snapshot["selected_employee_id"]
+        sig = (snapshot.get("selected_month_id"), selected_emp, tuple((e["id"], e["name"], e.get("num_trabalho", 0)) for e in employees))
+        if sig == self._last_employees_sig:
+            return
+        self._last_employees_sig = sig
+
+        clear_children(self.employee_list)
         if not employees:
             row = Gtk.ListBoxRow()
             row.set_child(Gtk.Label(label="Selecione uma planilha e um mes.", xalign=0))
@@ -865,11 +890,26 @@ class EscalaView(Gtk.Box):
             self.employee_list.append(row)
 
     def render_editor(self, snapshot: dict[str, Any]) -> None:
-        clear_children(self.editor_box)
         escala = snapshot["escala"]
         if not escala:
+            if self._last_editor_sig == "EMPTY":
+                return
+            self._last_editor_sig = "EMPTY"
+            clear_children(self.editor_box)
             self.editor_box.append(Gtk.Label(label="Carregue uma planilha e selecione um funcionario.", xalign=0))
             return
+
+        sig = (
+            snapshot.get("selected_month_id"),
+            snapshot.get("selected_employee_id"),
+            escala.get("name"),
+            tuple(d.get("status") for d in escala.get("escala", [])),
+        )
+        if sig == self._last_editor_sig:
+            return
+        self._last_editor_sig = sig
+
+        clear_children(self.editor_box)
 
         header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         title_stack = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
@@ -987,6 +1027,7 @@ class EscalaView(Gtk.Box):
 
     def select_turno(self, turno: str) -> None:
         state.set_turno(turno)
+        self._last_editor_sig = None
         self.refresh(force=True)
 
     def on_google_sync_clicked(self, _button: Gtk.Button) -> None:
