@@ -76,8 +76,13 @@ CSS = """
 .month-carousel-container {
     background-color: alpha(@window_fg_color, 0.03);
     border-bottom: 1px solid alpha(@window_fg_color, 0.1);
-    padding: 20px 0;
+    padding: 14px 16px;
     min-height: 120px;
+}
+.month-nav-button {
+    min-width: 42px;
+    min-height: 42px;
+    border-radius: 999px;
 }
 .month-page {
     padding: 0;
@@ -85,14 +90,21 @@ CSS = """
     min-width: 240px;
 }
 .month-page-content {
-    padding: 16px 32px;
-}
-.month-page:hover {
-    background-color: alpha(@accent_color, 0.08);
+    padding: 12px 28px;
 }
 .month-page.selected {
     border: 2px solid @accent_color;
     background-color: alpha(@accent_color, 0.12);
+}
+.month-strip-pill {
+    border-radius: 999px;
+    padding: 4px 12px;
+    font-size: 0.9em;
+}
+.month-strip-pill.selected {
+    background-color: alpha(@accent_color, 0.22);
+    border: 1px solid @accent_color;
+    font-weight: bold;
 }
 .month-row.selected,
 .employee-row.selected {
@@ -237,7 +249,10 @@ class EscalaView(Gtk.Box):
         self._git_busy = False
         self._calendar_ids: list[str] = []
         self._last_month_ids: list[str] = []
+        self._last_synced_month_id: str | None = None
         self._carousel_pages: dict[str, Gtk.Widget] = {}
+        self._strip_buttons: dict[str, Gtk.Button] = {}
+        self._strip_drag_start_x: float = 0.0
         self._blocking_carousel_signal = False
 
         self.content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -376,17 +391,59 @@ class EscalaView(Gtk.Box):
         carousel_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         carousel_container.add_css_class("month-carousel-container")
 
-        carousel_title = Gtk.Label(label="Mês de Referência")
+        carousel_title = Gtk.Label(label="Mês de Referência (use setas ‹/›, teclado ←/→ ou swipe)")
         carousel_title.add_css_class("section-title")
         carousel_container.append(carousel_title)
+
+        carousel_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        carousel_row.set_hexpand(True)
+        carousel_row.set_valign(Gtk.Align.CENTER)
+
+        self.prev_month_button = Gtk.Button.new_from_icon_name("go-previous-symbolic")
+        self.prev_month_button.add_css_class("month-nav-button")
+        self.prev_month_button.set_valign(Gtk.Align.CENTER)
+        self.prev_month_button.set_tooltip_text("Mês anterior (←)")
+        self.prev_month_button.connect("clicked", lambda _b: self.step_month(-1))
+        carousel_row.append(self.prev_month_button)
 
         self.month_carousel = Adw.Carousel()
         self.month_carousel.set_spacing(12)
         self.month_carousel.set_hexpand(True)
+        self.month_carousel.set_allow_mouse_drag(True)
         self.month_carousel.set_allow_scroll_wheel(True)
+        self.month_carousel.set_allow_long_swipes(True)
         self.month_carousel.set_reveal_duration(250)
         self.month_carousel.connect("page-changed", self.on_month_carousel_page_changed)
-        carousel_container.append(self.month_carousel)
+        carousel_row.append(self.month_carousel)
+
+        self.next_month_button = Gtk.Button.new_from_icon_name("go-next-symbolic")
+        self.next_month_button.add_css_class("month-nav-button")
+        self.next_month_button.set_valign(Gtk.Align.CENTER)
+        self.next_month_button.set_tooltip_text("Próximo mês (→)")
+        self.next_month_button.connect("clicked", lambda _b: self.step_month(1))
+        carousel_row.append(self.next_month_button)
+
+        carousel_container.append(carousel_row)
+
+        self.month_strip_scroll = Gtk.ScrolledWindow()
+        self.month_strip_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.NEVER)
+        self.month_strip_scroll.set_kinetic_scrolling(True)
+        self.month_strip_scroll.set_hexpand(True)
+
+        self.month_strip_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self.month_strip_box.set_halign(Gtk.Align.CENTER)
+        self.month_strip_scroll.set_child(self.month_strip_box)
+
+        strip_drag = Gtk.GestureDrag.new()
+        strip_drag.connect("drag-begin", self.on_strip_drag_begin)
+        strip_drag.connect("drag-update", self.on_strip_drag_update)
+        self.month_strip_scroll.add_controller(strip_drag)
+
+        strip_scroll_ctrl = Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.BOTH_AXES)
+        strip_scroll_ctrl.connect("scroll", self.on_strip_scroll)
+        self.month_strip_scroll.add_controller(strip_scroll_ctrl)
+
+        carousel_container.append(self.month_strip_scroll)
 
         self.carousel_indicator = Adw.CarouselIndicatorDots()
         self.carousel_indicator.set_carousel(self.month_carousel)
@@ -399,6 +456,11 @@ class EscalaView(Gtk.Box):
         editor_scroll.set_hexpand(True)
         editor_scroll.set_vexpand(True)
         right_panel.append(editor_scroll)
+
+        key_ctrl = Gtk.EventControllerKey.new()
+        key_ctrl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        key_ctrl.connect("key-pressed", self.on_key_pressed)
+        self.add_controller(key_ctrl)
 
         self.add_drop_targets()
         self.refresh(force=True)
@@ -598,6 +660,60 @@ class EscalaView(Gtk.Box):
             self._git_busy = False
             GLib.idle_add(self.refresh, True)
 
+    def on_key_pressed(
+        self,
+        _controller: Gtk.EventControllerKey,
+        keyval: int,
+        _keycode: int,
+        _state: Gdk.ModifierType,
+    ) -> bool:
+        root = self.get_root()
+        focus = root.get_focus() if root is not None else None
+        if isinstance(focus, (Gtk.Editable, Gtk.Entry, Gtk.SpinButton)):
+            return False
+
+        if keyval == Gdk.KEY_Left:
+            self.step_month(-1)
+            return True
+        if keyval == Gdk.KEY_Right:
+            self.step_month(1)
+            return True
+        return False
+
+    def step_month(self, delta: int) -> None:
+        if not self._last_month_ids:
+            return
+        snapshot = state.snapshot()
+        selected_id = snapshot.get("selected_month_id")
+        try:
+            idx = self._last_month_ids.index(selected_id) if selected_id else 0
+        except ValueError:
+            idx = 0
+        new_idx = max(0, min(len(self._last_month_ids) - 1, idx + delta))
+        if new_idx != idx:
+            self.on_month_clicked(self._last_month_ids[new_idx])
+
+    def on_strip_drag_begin(self, _gesture: Gtk.GestureDrag, _start_x: float, _start_y: float) -> None:
+        adj = self.month_strip_scroll.get_hadjustment()
+        self._strip_drag_start_x = adj.get_value() if adj is not None else 0.0
+
+    def on_strip_drag_update(self, _gesture: Gtk.GestureDrag, offset_x: float, _offset_y: float) -> None:
+        adj = self.month_strip_scroll.get_hadjustment()
+        if adj is not None:
+            upper = max(0.0, adj.get_upper() - adj.get_page_size())
+            target = max(0.0, min(upper, self._strip_drag_start_x - offset_x))
+            adj.set_value(target)
+
+    def on_strip_scroll(self, _ctrl: Gtk.EventControllerScroll, dx: float, dy: float) -> bool:
+        adj = self.month_strip_scroll.get_hadjustment()
+        if adj is None:
+            return False
+        delta = dx if abs(dx) > abs(dy) else dy
+        upper = max(0.0, adj.get_upper() - adj.get_page_size())
+        target = max(0.0, min(upper, adj.get_value() + delta * 42.0))
+        adj.set_value(target)
+        return True
+
     def on_month_carousel_page_changed(self, carousel: Adw.Carousel, index: int) -> None:
         if self._blocking_carousel_signal:
             return
@@ -605,15 +721,16 @@ class EscalaView(Gtk.Box):
         page = carousel.get_nth_page(index)
         for month_id, p in self._carousel_pages.items():
             if p == page:
+                self._last_synced_month_id = month_id
                 state.select_month(month_id)
                 self.refresh(force=True)
                 break
 
     def build_month_page(self, month: dict[str, Any]) -> Gtk.Widget:
-        button = Gtk.Button()
-        button.add_css_class("month-page")
-        button.set_halign(Gtk.Align.CENTER)
-        button.set_valign(Gtk.Align.CENTER)
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        card.add_css_class("month-page")
+        card.set_halign(Gtk.Align.CENTER)
+        card.set_valign(Gtk.Align.CENTER)
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
         box.add_css_class("month-page-content")
@@ -628,10 +745,8 @@ class EscalaView(Gtk.Box):
 
         box.append(name)
         box.append(meta)
-        button.set_child(box)
-
-        button.connect("clicked", lambda _btn, mid=month["id"]: self.on_month_clicked(mid))
-        return button
+        card.append(box)
+        return card
 
     def on_month_clicked(self, month_id: str) -> None:
         if month_id in self._carousel_pages:
@@ -641,39 +756,80 @@ class EscalaView(Gtk.Box):
     def render_months(self, snapshot: dict[str, Any]) -> None:
         months = snapshot["months"]
         if not months:
+            self.prev_month_button.set_sensitive(False)
+            self.next_month_button.set_sensitive(False)
             return
 
         month_ids = [m["id"] for m in months]
         if month_ids != self._last_month_ids:
             self._last_month_ids = month_ids
+            self._last_synced_month_id = None
             while True:
                 child = self.month_carousel.get_nth_page(0)
                 if child is None:
                     break
                 self.month_carousel.remove(child)
 
+            clear_children(self.month_strip_box)
             self._carousel_pages = {}
+            self._strip_buttons = {}
             for month in months:
                 page = self.build_month_page(month)
                 self.month_carousel.append(page)
                 self._carousel_pages[month["id"]] = page
 
+                month_num = month.get("month", "")
+                short_name = month.get("name", "")[:3].capitalize()
+                year_short = str(month.get("year", ""))[-2:]
+                pill_text = f"{short_name}/{year_short}" if year_short else (short_name or str(month_num))
+                pill_btn = Gtk.Button(label=pill_text)
+                pill_btn.add_css_class("month-strip-pill")
+                pill_btn.connect("clicked", lambda _b, mid=month["id"]: self.on_month_clicked(mid))
+                self.month_strip_box.append(pill_btn)
+                self._strip_buttons[month["id"]] = pill_btn
+
         selected_id = snapshot["selected_month_id"]
+        selected_idx = month_ids.index(selected_id) if selected_id in month_ids else 0
+        self.prev_month_button.set_sensitive(selected_idx > 0)
+        self.next_month_button.set_sensitive(selected_idx < len(month_ids) - 1)
+
         for mid, page in self._carousel_pages.items():
             if mid == selected_id:
                 page.add_css_class("selected")
             else:
                 page.remove_css_class("selected")
 
-        if selected_id in self._carousel_pages:
-            target_page = self._carousel_pages[selected_id]
-            current_pos = round(self.month_carousel.get_position())
-            current_page = self.month_carousel.get_nth_page(current_pos)
+        for mid, pill_btn in self._strip_buttons.items():
+            if mid == selected_id:
+                pill_btn.add_css_class("selected")
+            else:
+                pill_btn.remove_css_class("selected")
 
-            if target_page != current_page:
-                self._blocking_carousel_signal = True
-                self.month_carousel.scroll_to(target_page, False)
-                self._blocking_carousel_signal = False
+        if selected_id in self._carousel_pages and selected_id != self._last_synced_month_id:
+            animate = self._last_synced_month_id is not None
+            self._last_synced_month_id = selected_id
+            target_page = self._carousel_pages[selected_id]
+            self._blocking_carousel_signal = True
+            self.month_carousel.scroll_to(target_page, animate)
+            self._blocking_carousel_signal = False
+            GLib.idle_add(self.center_selected_month_pill, selected_id)
+
+    def center_selected_month_pill(self, month_id: str) -> bool:
+        pill = self._strip_buttons.get(month_id)
+        adj = self.month_strip_scroll.get_hadjustment()
+        if pill is None or adj is None:
+            return False
+        success, bounds = pill.compute_bounds(self.month_strip_box)
+        if not success:
+            return False
+        page_size = adj.get_page_size()
+        upper = max(0.0, adj.get_upper() - page_size)
+        if upper <= 0:
+            return False
+        pill_center = bounds.get_x() + bounds.get_width() / 2.0
+        target = max(0.0, min(upper, pill_center - page_size / 2.0))
+        adj.set_value(target)
+        return False
 
     def render_employees(self, snapshot: dict[str, Any]) -> None:
         clear_children(self.employee_list)
